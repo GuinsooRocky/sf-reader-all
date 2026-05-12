@@ -38,15 +38,28 @@ async def fetch_wechat(url: str) -> Dict[str, Any]:
         from x_reader.fetchers.jina import fetch_via_jina
 
         data = fetch_via_jina(url)
-        if data.get("content"):
+        content = data.get("content", "") or ""
+        title = data.get("title", "") or ""
+        captcha_markers = (
+            "requiring CAPTCHA",
+            "not yet fully loaded",
+            "Weixin Official Accounts Platform",
+            "请输入验证码",
+            "环境异常",
+        )
+        looks_blocked = any(m in content or m in title for m in captcha_markers)
+        if content and not looks_blocked:
             return {
-                "title": data["title"],
-                "content": _proxy_wechat_images(data["content"]),
+                "title": title,
+                "content": _proxy_wechat_images(content),
                 "author": data.get("author", ""),
                 "url": url,
                 "platform": "wechat",
             }
-        logger.warning("[WeChat] Jina returned empty content, falling back to browser")
+        if looks_blocked:
+            logger.warning("[WeChat] Jina hit CAPTCHA/anti-scrape page, falling back to browser")
+        else:
+            logger.warning("[WeChat] Jina returned empty content, falling back to browser")
     except Exception as e:
         logger.warning(f"[WeChat] Jina failed ({e}), falling back to browser")
 
