@@ -30,15 +30,21 @@ async def fetch_xhs(url: str) -> Dict[str, Any]:
     try:
         logger.info(f"[XHS] Tier 1 — Jina: {url}")
         data = fetch_via_jina(url)
-        if data.get("content"):
+        content = data.get("content", "")
+        title = data.get("title", "")
+        is_login_wall = (
+            "小红书 - 你的生活兴趣社区" in title
+            or "登录后推荐更懂你的笔记" in content
+        )
+        if content and not is_login_wall:
             return {
-                "title": data["title"],
-                "content": data["content"],
+                "title": title,
+                "content": content,
                 "author": data.get("author", ""),
                 "url": url,
                 "platform": "xhs",
             }
-        logger.warning("[XHS] Jina returned empty content, falling back to browser")
+        logger.warning("[XHS] Jina returned login-wall stub, falling back to browser")
     except Exception as e:
         logger.warning(f"[XHS] Jina failed ({e}), falling back to browser")
 
