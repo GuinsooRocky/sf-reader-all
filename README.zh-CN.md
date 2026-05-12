@@ -1,4 +1,4 @@
-# x-reader
+# sf-reader-all
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -31,10 +31,10 @@ Python 层负责文本抓取与 YouTube 字幕；可选的 **Claude Code skills*
 ### CLI 示例
 
 ```bash
-x-reader https://mp.weixin.qq.com/s/abc123
-x-reader https://x.com/elonmusk/status/123456
-x-reader login xhs
-x-reader list
+sf-reader-all https://mp.weixin.qq.com/s/abc123
+sf-reader-all https://x.com/elonmusk/status/123456
+sf-reader-all login xhs
+sf-reader-all list
 ```
 
 ### Skills 目录
@@ -48,8 +48,8 @@ skills/
 ### MCP
 
 ```bash
-git clone https://github.com/runesleo/x-reader.git
-cd x-reader
+git clone https://github.com/runesleo/sf-reader-all.git
+cd sf-reader-all
 pip install -e ".[mcp]"
 python mcp_server.py
 ```
@@ -73,11 +73,11 @@ python mcp_server.py
 ## 安装
 
 ```bash
-pip install git+https://github.com/runesleo/x-reader.git
-pip install "x-reader[telegram] @ git+https://github.com/runesleo/x-reader.git"
-pip install "x-reader[browser] @ git+https://github.com/runesleo/x-reader.git"
+pip install git+https://github.com/runesleo/sf-reader-all.git
+pip install "sf-reader-all[telegram] @ git+https://github.com/runesleo/sf-reader-all.git"
+pip install "sf-reader-all[browser] @ git+https://github.com/runesleo/sf-reader-all.git"
 playwright install chromium
-pip install "x-reader[all] @ git+https://github.com/runesleo/x-reader.git"
+pip install "sf-reader-all[all] @ git+https://github.com/runesleo/sf-reader-all.git"
 ```
 
 可选：本地克隆后 `pip install -e ".[all]"`。视频/音频依赖需 `yt-dlp`、`ffmpeg`（见英文 README）。
@@ -86,7 +86,7 @@ pip install "x-reader[all] @ git+https://github.com/runesleo/x-reader.git"
 
 ```python
 import asyncio
-from x_reader.reader import UniversalReader
+from sf_reader_all.reader import UniversalReader
 
 async def main():
     reader = UniversalReader()
@@ -103,7 +103,7 @@ asyncio.run(main())
 
 ## 仓库结构
 
-`x_reader/`（CLI、`UniversalReader`、各平台 fetcher）、`skills/`、`mcp_server.py`、`pyproject.toml`。各层如何协同的流程图见英文 README。
+`sf_reader_all/`（CLI、`UniversalReader`、各平台 fetcher）、`skills/`、`mcp_server.py`、`pyproject.toml`。各层如何协同的流程图见英文 README。
 
 ## Star History / Author / License
 

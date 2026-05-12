@@ -2,7 +2,7 @@
 # Scene: 内存中构造两条 UnifiedContent，一条已处理一条未处理，演示 get_unprocessed。
 # 不写磁盘。
 # 用法: python3 examples/04_list_unprocessed_demo.py
-# 依赖: x_reader.schema。
+# 依赖: sf_reader_all.schema。
 # 输出: 未处理条目标题。
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from x_reader.schema import UnifiedContent, SourceType  # noqa: E402
+from sf_reader_all.schema import UnifiedContent, SourceType  # noqa: E402
 
 
 def main() -> None:

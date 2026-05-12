@@ -2,7 +2,7 @@
 # Scene: UnifiedInbox.clear_old 按 fetched_at 剔除过期项；用伪造时间戳演示行为。
 # 使用临时 JSON 文件，跑完删除。
 # 用法: python3 examples/05_inbox_clear_old_demo.py
-# 依赖: x_reader.schema。
+# 依赖: sf_reader_all.schema。
 # 输出: clear 前后条数。
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from x_reader.schema import UnifiedInbox  # noqa: E402
+from sf_reader_all.schema import UnifiedInbox  # noqa: E402
 
 
 def main() -> None:

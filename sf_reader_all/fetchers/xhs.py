@@ -6,14 +6,14 @@ Xiaohongshu (RED) note fetcher — three-tier fallback:
 2. Playwright + saved session (handles 451/403)
 3. Error with login instructions
 
-Install browser tier: pip install "x-reader[browser]" && playwright install chromium
+Install browser tier: pip install "sf-reader-all[browser]" && playwright install chromium
 """
 
 from loguru import logger
 from typing import Dict, Any
 from pathlib import Path
 
-from x_reader.fetchers.jina import fetch_via_jina
+from sf_reader_all.fetchers.jina import fetch_via_jina
 
 
 async def fetch_xhs(url: str) -> Dict[str, Any]:
@@ -52,20 +52,20 @@ async def fetch_xhs(url: str) -> Dict[str, Any]:
     if "xsec_token" not in url and "xiaohongshu.com/explore/" in url:
         logger.warning("[XHS] URL missing xsec_token, likely to get 404")
 
-    from x_reader.fetchers.browser import get_session_path, SESSION_DIR
+    from sf_reader_all.fetchers.browser import get_session_path, SESSION_DIR
 
     session_path = get_session_path("xhs")
     if not Path(session_path).exists():
         # Tier 3: No session — guide user
         raise RuntimeError(
             f"❌ XHS blocked Jina and no saved session found.\n"
-            f"   Run: x-reader login xhs\n"
+            f"   Run: sf-reader-all login xhs\n"
             f"   Then retry this URL."
         )
 
     try:
         logger.info(f"[XHS] Tier 2 — Playwright with session: {url}")
-        from x_reader.fetchers.browser import fetch_via_browser
+        from sf_reader_all.fetchers.browser import fetch_via_browser
 
         data = await fetch_via_browser(url, storage_state=session_path)
 
@@ -75,7 +75,7 @@ async def fetch_xhs(url: str) -> Dict[str, Any]:
             if final_url.rstrip("/").endswith("/explore") or "login" in final_url:
                 raise RuntimeError(
                     f"❌ XHS session expired (redirected to {final_url}).\n"
-                    f"   Run: x-reader login xhs\n"
+                    f"   Run: sf-reader-all login xhs\n"
                     f"   Then retry this URL."
                 )
 
@@ -94,5 +94,5 @@ async def fetch_xhs(url: str) -> Dict[str, Any]:
         raise RuntimeError(
             f"❌ All XHS fetch methods failed.\n"
             f"   Last error: {e}\n"
-            f"   Try: x-reader login xhs (to refresh session)"
+            f"   Try: sf-reader-all login xhs (to refresh session)"
         )

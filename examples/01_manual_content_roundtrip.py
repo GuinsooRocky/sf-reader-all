@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from x_reader.schema import UnifiedContent, from_manual  # noqa: E402
+from sf_reader_all.schema import UnifiedContent, from_manual  # noqa: E402
 
 
 def main() -> None:

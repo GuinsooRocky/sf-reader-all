@@ -5,14 +5,14 @@ Playwright browser fetcher — headless Chromium fallback for anti-scraping site
 Used when Jina Reader fails (403/451/timeout). Supports persistent login
 sessions via Playwright's storage_state for platforms requiring authentication.
 
-Install: pip install "x-reader[browser]" && playwright install chromium
+Install: pip install "sf-reader-all[browser]" && playwright install chromium
 """
 
 from loguru import logger
 import os
 from pathlib import Path
 
-SESSION_DIR = Path.home() / ".x-reader" / "sessions"
+SESSION_DIR = Path.home() / ".sf-reader-all" / "sessions"
 TIMEOUT_MS = 30_000
 
 
@@ -29,7 +29,7 @@ async def fetch_via_browser(url: str, storage_state: str = None) -> dict:
         dict with keys: title, content, url, author
     """
     # Security: Validate URL before fetching
-    from x_reader.utils.url_validator import validate_url
+    from sf_reader_all.utils.url_validator import validate_url
     validate_url(url)
 
     try:
@@ -37,7 +37,7 @@ async def fetch_via_browser(url: str, storage_state: str = None) -> dict:
     except ImportError:
         raise RuntimeError(
             "Playwright is not installed. Run:\n"
-            '  pip install "x-reader[browser]"\n'
+            '  pip install "sf-reader-all[browser]"\n'
             "  playwright install chromium"
         )
 

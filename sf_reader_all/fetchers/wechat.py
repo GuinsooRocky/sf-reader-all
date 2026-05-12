@@ -35,7 +35,7 @@ async def fetch_wechat(url: str) -> Dict[str, Any]:
     # Tier 1: Jina Reader
     try:
         logger.info(f"[WeChat] Tier 1 — Jina: {url}")
-        from x_reader.fetchers.jina import fetch_via_jina
+        from sf_reader_all.fetchers.jina import fetch_via_jina
 
         data = fetch_via_jina(url)
         content = data.get("content", "")
@@ -55,7 +55,7 @@ async def fetch_wechat(url: str) -> Dict[str, Any]:
     # Tier 2: Playwright headless (no session needed)
     try:
         logger.info(f"[WeChat] Tier 2 — Playwright headless: {url}")
-        from x_reader.fetchers.browser import fetch_via_browser
+        from sf_reader_all.fetchers.browser import fetch_via_browser
 
         data = await fetch_via_browser(url)
         return {

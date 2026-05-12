@@ -10,13 +10,13 @@ from urllib.parse import urlparse
 from loguru import logger
 from typing import Dict, Any, Optional
 
-from x_reader.schema import (
+from sf_reader_all.schema import (
     UnifiedContent, UnifiedInbox, SourceType,
     from_bilibili, from_twitter, from_wechat,
     from_xiaohongshu, from_youtube, from_rss, from_telegram,
 )
-from x_reader.fetchers.jina import fetch_via_jina
-from x_reader.utils.url_validator import validate_url
+from sf_reader_all.fetchers.jina import fetch_via_jina
+from sf_reader_all.utils.url_validator import validate_url
 
 
 class UniversalReader:
@@ -78,7 +78,7 @@ class UniversalReader:
                     logger.info(f"Saved to inbox: {content.title[:50]}")
 
             # Save to markdown output if configured
-            from x_reader.utils.storage import save_to_markdown
+            from sf_reader_all.utils.storage import save_to_markdown
             save_to_markdown(content)
 
             return content
@@ -91,39 +91,39 @@ class UniversalReader:
         """Dispatch to platform-specific fetcher."""
 
         if platform == "bilibili":
-            from x_reader.fetchers.bilibili import fetch_bilibili
+            from sf_reader_all.fetchers.bilibili import fetch_bilibili
             data = await fetch_bilibili(url)
             return from_bilibili(data)
 
         if platform == "twitter":
-            from x_reader.fetchers.twitter import fetch_twitter
+            from sf_reader_all.fetchers.twitter import fetch_twitter
             data = await fetch_twitter(url)
             return from_twitter(data)
 
         if platform == "wechat":
-            from x_reader.fetchers.wechat import fetch_wechat
+            from sf_reader_all.fetchers.wechat import fetch_wechat
             data = await fetch_wechat(url)
             return from_wechat(data)
 
         if platform == "xhs":
-            from x_reader.fetchers.xhs import fetch_xhs
+            from sf_reader_all.fetchers.xhs import fetch_xhs
             data = await fetch_xhs(url)
             return from_xiaohongshu(data)
 
         if platform == "youtube":
-            from x_reader.fetchers.youtube import fetch_youtube
+            from sf_reader_all.fetchers.youtube import fetch_youtube
             data = await fetch_youtube(url)
             return from_youtube(data)
 
         if platform == "rss":
-            from x_reader.fetchers.rss import fetch_rss
+            from sf_reader_all.fetchers.rss import fetch_rss
             articles = await fetch_rss(url, limit=1)
             if articles:
                 return from_rss(articles[0])
             raise ValueError(f"No articles found in RSS feed: {url}")
 
         if platform == "telegram":
-            from x_reader.fetchers.telegram import fetch_telegram
+            from sf_reader_all.fetchers.telegram import fetch_telegram
             # Extract channel username from t.me URL
             path = urlparse(url).path.strip("/").split("/")[0]
             channel = path if path else url

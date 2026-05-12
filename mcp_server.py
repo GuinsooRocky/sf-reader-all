@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-x-reader MCP Server — expose content reading as MCP tools.
+sf-reader-all MCP Server — expose content reading as MCP tools.
 
 Usage:
     python mcp_server.py                    # stdio transport (for Claude Code)
@@ -9,9 +9,9 @@ Usage:
 Claude Code config (~/.claude/claude_desktop_config.json):
     {
         "mcpServers": {
-            "x-reader": {
+            "sf-reader-all": {
                 "command": "python",
-                "args": ["/path/to/x-reader/mcp_server.py"]
+                "args": ["/path/to/sf-reader-all/mcp_server.py"]
             }
         }
     }
@@ -23,11 +23,11 @@ from mcp.server.fastmcp import FastMCP
 
 load_dotenv()
 
-from x_reader.reader import UniversalReader
-from x_reader.schema import UnifiedInbox
+from sf_reader_all.reader import UniversalReader
+from sf_reader_all.schema import UnifiedInbox
 
 mcp = FastMCP(
-    "x-reader",
+    "sf-reader-all",
     instructions="Universal content reader — give it any URL, get structured content back.",
 )
 
@@ -93,7 +93,7 @@ async def detect_platform(url: str) -> str:
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="x-reader MCP Server")
+    parser = argparse.ArgumentParser(description="sf-reader-all MCP Server")
     parser.add_argument(
         "--transport", default="stdio", choices=["stdio", "sse"],
         help="Transport mode (default: stdio)",

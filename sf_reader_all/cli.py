@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-x-reader CLI — fetch content from any platform.
+sf-reader-all CLI — fetch content from any platform.
 
 Usage:
-    x-reader <url>                     # Fetch a single URL
-    x-reader <url1> <url2> ...         # Fetch multiple URLs
-    x-reader list                      # Show inbox contents
-    x-reader clear                     # Clear inbox
+    sf-reader-all <url>                     # Fetch a single URL
+    sf-reader-all <url1> <url2> ...         # Fetch multiple URLs
+    sf-reader-all list                      # Show inbox contents
+    sf-reader-all clear                     # Clear inbox
 """
 
 import sys
@@ -17,8 +17,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
-from x_reader.reader import UniversalReader
-from x_reader.schema import UnifiedInbox, SourceType
+from sf_reader_all.reader import UniversalReader
+from sf_reader_all.schema import UnifiedInbox, SourceType
 
 
 def get_inbox_path() -> str:
@@ -87,31 +87,31 @@ def cmd_clear():
 
 def cmd_login(platform: str, headless: bool = False):
     """Open browser for manual login to a platform."""
-    from x_reader.login import login
+    from sf_reader_all.login import login
     login(platform, headless=headless)
 
 
 def main():
     if len(sys.argv) < 2:
         print("""
-📖 x-reader — Universal content reader
+📖 sf-reader-all — Universal content reader
 
 Usage:
-    x-reader <url>              Fetch content from any URL
-    x-reader <url1> <url2>      Fetch multiple URLs
-    x-reader login <platform>   Login to a platform (saves session for browser fallback)
-    x-reader list               Show inbox contents
-    x-reader clear              Clear inbox
+    sf-reader-all <url>              Fetch content from any URL
+    sf-reader-all <url1> <url2>      Fetch multiple URLs
+    sf-reader-all login <platform>   Login to a platform (saves session for browser fallback)
+    sf-reader-all list               Show inbox contents
+    sf-reader-all clear              Clear inbox
 
 Supported platforms:
     WeChat, Telegram, X/Twitter, YouTube,
     Bilibili, Xiaohongshu, RSS, and any web page
 
 Examples:
-    x-reader https://mp.weixin.qq.com/s/abc123
-    x-reader https://x.com/elonmusk/status/123456
-    x-reader https://www.xiaohongshu.com/explore/abc123
-    x-reader login xhs
+    sf-reader-all https://mp.weixin.qq.com/s/abc123
+    sf-reader-all https://x.com/elonmusk/status/123456
+    sf-reader-all https://www.xiaohongshu.com/explore/abc123
+    sf-reader-all login xhs
 """)
         return
 
@@ -119,7 +119,7 @@ Examples:
 
     if cmd == "login":
         if len(sys.argv) < 3:
-            print("❌ Usage: x-reader login <platform> [--headless]")
+            print("❌ Usage: sf-reader-all login <platform> [--headless]")
             print("   Supported: xhs, wechat")
             sys.exit(1)
         headless = "--headless" in sys.argv
@@ -133,7 +133,7 @@ Examples:
         cmd_fetch(urls)
     else:
         print(f"❌ Unknown command: {cmd}")
-        print("   Run 'x-reader' with no args for help")
+        print("   Run 'sf-reader-all' with no args for help")
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from loguru import logger
 
-from x_reader.schema import UnifiedContent
+from sf_reader_all.schema import UnifiedContent
 
 
 def save_to_json(item: UnifiedContent, filepath: str = "unified_inbox.json"):
@@ -45,7 +45,7 @@ def save_to_markdown(item: UnifiedContent, filepath: str = None):
 
     Supports two output modes:
     - OUTPUT_DIR: Write to {OUTPUT_DIR}/content_hub.md
-    - OBSIDIAN_VAULT: Write to {OBSIDIAN_VAULT}/01-收集箱/x-reader-inbox.md
+    - OBSIDIAN_VAULT: Write to {OBSIDIAN_VAULT}/01-收集箱/sf-reader-all-inbox.md
 
     If neither is set, skips markdown output.
     """
@@ -53,7 +53,7 @@ def save_to_markdown(item: UnifiedContent, filepath: str = None):
         # Priority 1: Obsidian vault
         vault_path = os.getenv("OBSIDIAN_VAULT", "")
         if vault_path:
-            filepath = os.path.join(vault_path, "01-收集箱", "x-reader-inbox.md")
+            filepath = os.path.join(vault_path, "01-收集箱", "sf-reader-all-inbox.md")
         else:
             # Priority 2: generic output dir
             output_dir = os.getenv("OUTPUT_DIR", "")

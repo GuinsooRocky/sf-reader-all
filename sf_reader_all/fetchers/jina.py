@@ -15,7 +15,7 @@ TIMEOUT = 30
 
 HEADERS = {
     "Accept": "text/markdown",
-    "User-Agent": "x-reader/0.1",
+    "User-Agent": "sf-reader-all/0.1",
 }
 
 

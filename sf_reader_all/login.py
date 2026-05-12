@@ -3,8 +3,8 @@
 Login manager — opens a browser for manual login, saves session.
 
 Usage:
-    x-reader login xhs              # Visible browser login
-    x-reader login xhs --headless   # Headless: saves QR screenshot for scanning
+    sf-reader-all login xhs              # Visible browser login
+    sf-reader-all login xhs --headless   # Headless: saves QR screenshot for scanning
 
 Sessions are saved as Playwright storage_state JSON files.
 """
@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from loguru import logger
 
-SESSION_DIR = Path.home() / ".x-reader" / "sessions"
+SESSION_DIR = Path.home() / ".sf-reader-all" / "sessions"
 
 PLATFORM_URLS = {
     "xhs": "https://www.xiaohongshu.com/explore",
@@ -55,7 +55,7 @@ def login(platform: str, headless: bool = False) -> None:
     except ImportError:
         print(
             "❌ Playwright is not installed. Run:\n"
-            '   pip install "x-reader[browser]"\n'
+            '   pip install "sf-reader-all[browser]"\n'
             "   playwright install chromium"
         )
         return

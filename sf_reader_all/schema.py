@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Unified content schema for x-reader.
+Unified content schema for sf-reader-all.
 
 Defines the standard data format for all content sources:
 - Telegram channels

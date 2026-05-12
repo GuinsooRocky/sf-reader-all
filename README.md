@@ -1,4 +1,4 @@
-# x-reader
+# sf-reader-all
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -24,7 +24,7 @@ The Python layer handles text fetching and YouTube subtitle extraction. The **Cl
 
 ## Three Layers
 
-x-reader is composable. Use the layers you need:
+sf-reader-all is composable. Use the layers you need:
 
 | Layer | What | Format | Install |
 |-------|------|--------|---------|
@@ -36,19 +36,19 @@ x-reader is composable. Use the layers you need:
 
 ```bash
 # Fetch any URL
-x-reader https://mp.weixin.qq.com/s/abc123
+sf-reader-all https://mp.weixin.qq.com/s/abc123
 
 # Fetch a tweet
-x-reader https://x.com/elonmusk/status/123456
+sf-reader-all https://x.com/elonmusk/status/123456
 
 # Fetch multiple URLs
-x-reader https://url1.com https://url2.com
+sf-reader-all https://url1.com https://url2.com
 
 # Login to a platform (one-time, for browser fallback)
-x-reader login xhs
+sf-reader-all login xhs
 
 # View inbox
-x-reader list
+sf-reader-all list
 ```
 
 ### Layer 2: Claude Code Skills
@@ -76,8 +76,8 @@ Then in Claude Code, just send a YouTube/Bilibili/podcast link — the video ski
 > Requires cloning the repo (mcp_server.py is not included in pip install).
 
 ```bash
-git clone https://github.com/runesleo/x-reader.git
-cd x-reader
+git clone https://github.com/runesleo/sf-reader-all.git
+cd sf-reader-all
 pip install -e ".[mcp]"
 python mcp_server.py
 ```
@@ -92,9 +92,9 @@ Claude Code config (`~/.claude/claude_desktop_config.json`):
 ```json
 {
     "mcpServers": {
-        "x-reader": {
+        "sf-reader-all": {
             "command": "python",
-            "args": ["/path/to/x-reader/mcp_server.py"]
+            "args": ["/path/to/sf-reader-all/mcp_server.py"]
         }
     }
 }
@@ -115,7 +115,7 @@ Claude Code config (`~/.claude/claude_desktop_config.json`):
 | Apple Podcasts | — | ✅ via Claude Code skill |
 | Any web page | ✅ Jina fallback | — |
 
-> \*XHS requires a one-time login: `x-reader login xhs` (saves session for Playwright fallback)
+> \*XHS requires a one-time login: `sf-reader-all login xhs` (saves session for Playwright fallback)
 >
 > YouTube Whisper transcription requires `GROQ_API_KEY` — get a free key from [Groq](https://console.groq.com/keys)
 
@@ -123,24 +123,24 @@ Claude Code config (`~/.claude/claude_desktop_config.json`):
 
 ```bash
 # From GitHub (recommended)
-pip install git+https://github.com/runesleo/x-reader.git
+pip install git+https://github.com/runesleo/sf-reader-all.git
 
 # With Telegram support
-pip install "x-reader[telegram] @ git+https://github.com/runesleo/x-reader.git"
+pip install "sf-reader-all[telegram] @ git+https://github.com/runesleo/sf-reader-all.git"
 
 # With browser fallback (Playwright — for XHS/WeChat anti-scraping)
-pip install "x-reader[browser] @ git+https://github.com/runesleo/x-reader.git"
+pip install "sf-reader-all[browser] @ git+https://github.com/runesleo/sf-reader-all.git"
 playwright install chromium
 
 # With all optional dependencies
-pip install "x-reader[all] @ git+https://github.com/runesleo/x-reader.git"
+pip install "sf-reader-all[all] @ git+https://github.com/runesleo/sf-reader-all.git"
 playwright install chromium
 ```
 
 Or clone and install locally:
 ```bash
-git clone https://github.com/runesleo/x-reader.git
-cd x-reader
+git clone https://github.com/runesleo/sf-reader-all.git
+cd sf-reader-all
 pip install -e ".[all]"
 playwright install chromium
 ```
@@ -165,7 +165,7 @@ export GROQ_API_KEY=your_key_here
 
 ```python
 import asyncio
-from x_reader.reader import UniversalReader
+from sf_reader_all.reader import UniversalReader
 
 async def main():
     reader = UniversalReader()
@@ -191,13 +191,13 @@ cp .env.example .env
 | `GROQ_API_KEY` | Whisper only | From https://console.groq.com/keys (free) |
 | `INBOX_FILE` | No | Path to inbox JSON (default: `./unified_inbox.json`) |
 | `OUTPUT_DIR` | No | Directory for Markdown output (default: disabled) |
-| `OBSIDIAN_VAULT` | No | Path to Obsidian vault (writes to `01-收集箱/x-reader-inbox.md`) |
+| `OBSIDIAN_VAULT` | No | Path to Obsidian vault (writes to `01-收集箱/sf-reader-all-inbox.md`) |
 
 ## Architecture
 
 ```
-x-reader/
-├── x_reader/              # Python package
+sf-reader-all/
+├── sf_reader_all/              # Python package
 │   ├── cli.py             # CLI entry point
 │   ├── reader.py          # URL dispatcher (UniversalReader)
 │   ├── schema.py          # Unified data model (UnifiedContent + Inbox)
@@ -242,11 +242,11 @@ User sends URL
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=runesleo/x-reader&type=Date)](https://star-history.com/#runesleo/x-reader&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=runesleo/sf-reader-all&type=Date)](https://star-history.com/#runesleo/sf-reader-all&Date)
 
 ## Author
 
-*Leo ([@runes_leo](https://x.com/runes_leo)) — AI × Crypto independent builder. Trading on [Polymarket](https://polymarket.com/?r=githuball&via=runes-leo&utm_source=github&utm_content=x-reader), building data and trading systems with Claude Code and Codex.*
+*Leo ([@runes_leo](https://x.com/runes_leo)) — AI × Crypto independent builder. Trading on [Polymarket](https://polymarket.com/?r=githuball&via=runes-leo&utm_source=github&utm_content=sf-reader-all), building data and trading systems with Claude Code and Codex.*
 
 [leolabs.me](https://leolabs.me) — writing · community · open-source tools · indie projects · all platforms.
 

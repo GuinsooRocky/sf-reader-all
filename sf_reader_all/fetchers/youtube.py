@@ -17,7 +17,7 @@ import tempfile
 from loguru import logger
 from typing import Dict, Any
 
-from x_reader.fetchers.jina import fetch_via_jina
+from sf_reader_all.fetchers.jina import fetch_via_jina
 
 
 def _extract_video_id(url: str) -> str:
@@ -32,7 +32,7 @@ def _get_subtitles_via_ytdlp(url: str, lang: str = "en") -> str:
     Returns subtitle text, or empty string if unavailable.
     """
     # Security: Validate URL before passing to subprocess
-    from x_reader.utils.url_validator import validate_url
+    from sf_reader_all.utils.url_validator import validate_url
     validate_url(url)
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -101,7 +101,7 @@ def _transcribe_via_whisper(url: str) -> str:
         return ""
 
     # Security: Validate URL before passing to subprocess
-    from x_reader.utils.url_validator import validate_url
+    from sf_reader_all.utils.url_validator import validate_url
     validate_url(url)
 
     with tempfile.TemporaryDirectory() as tmpdir:
