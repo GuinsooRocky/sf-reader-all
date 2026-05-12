@@ -76,7 +76,7 @@ Then in Claude Code, just send a YouTube/Bilibili/podcast link — the video ski
 > Requires cloning the repo (mcp_server.py is not included in pip install).
 
 ```bash
-git clone https://github.com/runesleo/sf-reader-all.git
+git clone https://github.com/GuinsooRocky/sf-reader-all.git
 cd sf-reader-all
 pip install -e ".[mcp]"
 python mcp_server.py
@@ -123,23 +123,23 @@ Claude Code config (`~/.claude/claude_desktop_config.json`):
 
 ```bash
 # From GitHub (recommended)
-pip install git+https://github.com/runesleo/sf-reader-all.git
+pip install git+https://github.com/GuinsooRocky/sf-reader-all.git
 
 # With Telegram support
-pip install "sf-reader-all[telegram] @ git+https://github.com/runesleo/sf-reader-all.git"
+pip install "sf-reader-all[telegram] @ git+https://github.com/GuinsooRocky/sf-reader-all.git"
 
 # With browser fallback (Playwright — for XHS/WeChat anti-scraping)
-pip install "sf-reader-all[browser] @ git+https://github.com/runesleo/sf-reader-all.git"
+pip install "sf-reader-all[browser] @ git+https://github.com/GuinsooRocky/sf-reader-all.git"
 playwright install chromium
 
 # With all optional dependencies
-pip install "sf-reader-all[all] @ git+https://github.com/runesleo/sf-reader-all.git"
+pip install "sf-reader-all[all] @ git+https://github.com/GuinsooRocky/sf-reader-all.git"
 playwright install chromium
 ```
 
 Or clone and install locally:
 ```bash
-git clone https://github.com/runesleo/sf-reader-all.git
+git clone https://github.com/GuinsooRocky/sf-reader-all.git
 cd sf-reader-all
 pip install -e ".[all]"
 playwright install chromium
@@ -239,20 +239,6 @@ User sends URL
     └─ Analysis requested
         └─ Analyzer skill → structured report + action items
 ```
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=runesleo/sf-reader-all&type=Date)](https://star-history.com/#runesleo/sf-reader-all&Date)
-
-## Author
-
-*Leo ([@runes_leo](https://x.com/runes_leo)) — AI × Crypto independent builder. Trading on [Polymarket](https://polymarket.com/?r=githuball&via=runes-leo&utm_source=github&utm_content=sf-reader-all), building data and trading systems with Claude Code and Codex.*
-
-[leolabs.me](https://leolabs.me) — writing · community · open-source tools · indie projects · all platforms.
-
-[X Subscription](https://x.com/runes_leo/creator-subscriptions/subscribe) — paid content weekly, or just buy me a coffee 😁
-
-*Learn in public, Build in public.*
 
 ## License
 

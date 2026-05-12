@@ -48,7 +48,7 @@ skills/
 ### MCP
 
 ```bash
-git clone https://github.com/runesleo/sf-reader-all.git
+git clone https://github.com/GuinsooRocky/sf-reader-all.git
 cd sf-reader-all
 pip install -e ".[mcp]"
 python mcp_server.py
@@ -73,11 +73,11 @@ python mcp_server.py
 ## 安装
 
 ```bash
-pip install git+https://github.com/runesleo/sf-reader-all.git
-pip install "sf-reader-all[telegram] @ git+https://github.com/runesleo/sf-reader-all.git"
-pip install "sf-reader-all[browser] @ git+https://github.com/runesleo/sf-reader-all.git"
+pip install git+https://github.com/GuinsooRocky/sf-reader-all.git
+pip install "sf-reader-all[telegram] @ git+https://github.com/GuinsooRocky/sf-reader-all.git"
+pip install "sf-reader-all[browser] @ git+https://github.com/GuinsooRocky/sf-reader-all.git"
 playwright install chromium
-pip install "sf-reader-all[all] @ git+https://github.com/runesleo/sf-reader-all.git"
+pip install "sf-reader-all[all] @ git+https://github.com/GuinsooRocky/sf-reader-all.git"
 ```
 
 可选：本地克隆后 `pip install -e ".[all]"`。视频/音频依赖需 `yt-dlp`、`ffmpeg`（见英文 README）。
@@ -105,6 +105,6 @@ asyncio.run(main())
 
 `sf_reader_all/`（CLI、`UniversalReader`、各平台 fetcher）、`skills/`、`mcp_server.py`、`pyproject.toml`。各层如何协同的流程图见英文 README。
 
-## Star History / Author / License
+## License
 
-与英文 [README](./README.md) 相同：Star 图、作者 Leo ([@runes_leo](https://x.com/runes_leo))、**MIT**。
+MIT
