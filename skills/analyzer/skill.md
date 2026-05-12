@@ -14,14 +14,22 @@ When user sends content (URL, text, or transcript) with analysis intent:
 
 ### Step 1: Get Content
 
-Choose tool based on input type:
+**首选 `sf-reader-all`**（本机 Python CLI，`/Users/lengmo/.local/bin/sf-reader-all`），它内部按平台三层 fallback（Jina → Playwright headless → 登录态浏览器），微信/小红书/B 站这种风控站点也能抓。
 
 | Input | Tool |
 |-------|------|
-| Tweet URL | `fetch_tweet` or Jina Reader |
-| Web URL | `WebFetch` or Jina Reader |
+| 任何 URL（微信/小红书/X/YouTube/B 站/RSS/通用网页） | `sf-reader-all <url>` |
+| sf-reader-all 不支持的格式 / 抓取失败 | `WebFetch` 或 Jina Reader 兜底 |
 | Local file | Read file directly |
 | Transcript from video skill | Use directly |
+
+**执行方式**：
+```bash
+sf-reader-all <url>
+```
+抓完落到 `~/unified_inbox.json`，从里面拿对应 url 项的 `content` 字段（中文正文已抽好）。需要登录态时（小红书等）先跑 `sf-reader-all login <platform>` 一次。
+
+**不要**直接 WebFetch 微信公众号 / 小红书链接——会拿到风控页。
 
 ### Step 2: Multi-Dimensional Analysis
 
