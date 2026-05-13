@@ -1,3 +1,16 @@
+---
+name: video
+description: >
+  视频 / 播客链接 → 字幕或 Whisper 转写 + 结构化摘要。
+  支持平台：YouTube（youtube.com、youtu.be）、B 站（bilibili.com、b23.tv）、
+  X/Twitter 带视频推文（x.com、twitter.com）、小宇宙（xiaoyuzhoufm.com）、
+  Apple Podcasts（podcasts.apple.com）、音视频直链（.mp3 / .mp4 / .m4a / .m3u8 / .webm）。
+  触发词：写个摘要、总结这个视频、这个播客讲了啥、转写、转录、
+  听播客、看视频、digest、/video。
+  自动检测：URL 命中以上域名 / 后缀即触发。
+  字幕优先，无字幕走 Groq Whisper（需 GROQ_API_KEY）；>25MB 自动切片顺序转写。
+---
+
 # Video & Podcast Digest Skill
 
 > Send a video/podcast link → get full transcript + structured summary
