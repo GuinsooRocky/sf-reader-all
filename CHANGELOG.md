@@ -8,7 +8,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) for stru
 
 ## [Unreleased]
 
-— (no staged release; see History below for recent commits.)
+### Added
+- `archive` / `archive-links` commands: batch-snapshot a curated URL list
+  into self-contained single-file HTML (CSS/images inlined) plus an index.
+  Site-agnostic — link discovery is curated by the caller, the engine has
+  no per-site logic. New `archive` skill drives the discover → curate →
+  archive workflow.
 
 ## History (full git log)
 
