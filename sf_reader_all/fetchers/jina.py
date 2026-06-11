@@ -3,8 +3,15 @@
 Jina Reader — universal fallback for content extraction.
 
 Uses https://r.jina.ai/{url} to extract markdown from any web page.
-Free, no API key required, handles JS rendering and anti-scraping.
+Handles JS rendering and anti-scraping.
+
+NOTE (2026-06): anonymous access now returns 401 — r.jina.ai requires an
+API key. Set JINA_API_KEY in the environment (free tier available at
+https://jina.ai/reader); without it this fetcher will fail and callers
+fall back to other channels.
 """
+
+import os
 
 import requests
 from loguru import logger
@@ -19,6 +26,11 @@ HEADERS = {
 }
 
 
+def _headers() -> dict:
+    key = os.getenv("JINA_API_KEY")
+    return {**HEADERS, "Authorization": f"Bearer {key}"} if key else dict(HEADERS)
+
+
 def fetch_via_jina(url: str) -> dict:
     """
     Fetch any URL via Jina Reader and return structured data.
@@ -30,7 +42,7 @@ def fetch_via_jina(url: str) -> dict:
     logger.info(f"Jina fetch: {url}")
 
     try:
-        resp = requests.get(jina_url, headers=HEADERS, timeout=TIMEOUT)
+        resp = requests.get(jina_url, headers=_headers(), timeout=TIMEOUT)
         resp.raise_for_status()
         text = resp.text
 

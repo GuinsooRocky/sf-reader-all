@@ -28,29 +28,37 @@ def get_inbox_path() -> str:
     return os.getenv("INBOX_FILE", "unified_inbox.json")
 
 
-def cmd_fetch(urls: list[str]):
-    """Fetch one or more URLs."""
+def cmd_fetch(urls: list[str], as_json: bool = False):
+    """Fetch one or more URLs.
+
+    as_json: machine interface — print fetched items as a JSON array on
+    stdout (human logs go to stderr), so callers don't have to locate and
+    parse the inbox file. Items are still archived to the inbox as usual.
+    """
     inbox = UnifiedInbox(get_inbox_path())
     reader = UniversalReader(inbox=inbox)
+    log = sys.stderr if as_json else sys.stdout
 
     async def run():
         if len(urls) == 1:
-            item = await reader.read(urls[0])
-            print(f"✅ [{item.source_type.value}] {item.title[:60]}")
-            print(f"   {item.url}")
-            print(f"   {item.content[:200]}...")
+            items = [await reader.read(urls[0])]
         else:
             items = await reader.read_batch(urls)
-            for item in items:
-                print(f"✅ [{item.source_type.value}] {item.title[:60]}")
-            print(f"\n📦 Fetched {len(items)}/{len(urls)} URLs")
+
+        for item in items:
+            print(f"✅ [{item.source_type.value}] {item.title[:60]}", file=log)
+        if len(urls) > 1:
+            print(f"\n📦 Fetched {len(items)}/{len(urls)} URLs", file=log)
+
+        if as_json:
+            print(json.dumps([item.to_dict() for item in items], ensure_ascii=False))
 
     try:
         asyncio.run(run())
     except KeyboardInterrupt:
-        print("\n⏹ Cancelled")
+        print("\n⏹ Cancelled", file=log)
     except Exception as e:
-        print(f"❌ {e}")
+        print(f"❌ {e}", file=log)
         sys.exit(1)
 
 
@@ -210,9 +218,15 @@ Examples:
         cmd_list()
     elif cmd == "clear":
         cmd_clear()
-    elif cmd.startswith("http") or cmd.startswith("www.") or "." in cmd:
-        urls = [arg for arg in sys.argv[1:] if arg.startswith(("http", "www.")) or "." in arg]
-        cmd_fetch(urls)
+    elif cmd == "--json" or cmd.startswith("http") or cmd.startswith("www.") or "." in cmd:
+        args = sys.argv[1:]
+        as_json = "--json" in args
+        urls = [a for a in args
+                if not a.startswith("--") and (a.startswith(("http", "www.")) or "." in a)]
+        if not urls:
+            print("❌ Usage: sf-reader-all [--json] <url> [url2 ...]")
+            sys.exit(1)
+        cmd_fetch(urls, as_json=as_json)
     else:
         print(f"❌ Unknown command: {cmd}")
         print("   Run 'sf-reader-all' with no args for help")

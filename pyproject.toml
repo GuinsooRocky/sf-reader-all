@@ -1,6 +1,6 @@
 [project]
 name = "sf-reader-all"
-version = "0.2.0"
+version = "0.3.0"
 description = "Universal content reader — fetch, normalize, and digest content from 7+ platforms"
 readme = "README.md"
 license = {text = "MIT"}
