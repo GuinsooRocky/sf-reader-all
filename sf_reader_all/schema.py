@@ -19,6 +19,14 @@ from typing import Optional, List
 from enum import Enum
 import hashlib
 import json
+import os
+import tempfile
+
+try:
+    import fcntl  # POSIX-only; absent on Windows
+    _HAS_FCNTL = True
+except ImportError:  # pragma: no cover
+    _HAS_FCNTL = False
 
 
 class SourceType(str, Enum):
@@ -232,10 +240,12 @@ class UnifiedInbox:
     def __init__(self, filepath: str = "unified_inbox.json"):
         self.filepath = filepath
         self.items: List[UnifiedContent] = []
+        self._loaded_state: dict[str, dict] = {}
         self.load()
 
     def load(self):
         import os
+        self.items = []
         if os.path.exists(self.filepath):
             try:
                 with open(self.filepath, 'r', encoding='utf-8') as f:
@@ -243,15 +253,83 @@ class UnifiedInbox:
                     self.items = [UnifiedContent.from_dict(d) for d in data]
             except (json.JSONDecodeError, IOError):
                 self.items = []
+        self._loaded_state = {item.id: item.to_dict() for item in self.items}
 
     def save(self):
-        with open(self.filepath, 'w', encoding='utf-8') as f:
-            json.dump([item.to_dict() for item in self.items], f,
-                      ensure_ascii=False, indent=2)
+        """Persist the inbox atomically, merging with the on-disk state.
+
+        Multiple sessions under the same home dir write this file concurrently.
+        The naive "load-whole / append / write-whole" pattern loses updates: two
+        processes both read v0, each appends one item, and the second writer
+        clobbers the first's item. We guard against that by, under an exclusive
+        file lock, re-reading the current on-disk items and merging this
+        session's items on top (newest fetch wins per id), then writing to a temp
+        file and os.replace()-ing it into place so readers never see a partial
+        write.
+        """
+        lock = open(self.filepath + ".lock", "w")
+        try:
+            if _HAS_FCNTL:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+
+            disk_items: List[UnifiedContent] = []
+            if os.path.exists(self.filepath):
+                try:
+                    with open(self.filepath, 'r', encoding='utf-8') as f:
+                        disk_items = [UnifiedContent.from_dict(d) for d in json.load(f)]
+                except (json.JSONDecodeError, IOError):
+                    disk_items = []
+
+            # Apply only this session's changes to the latest disk state. A
+            # session may have loaded an older copy before another writer
+            # refreshed it; overlaying every item from self.items would revert
+            # that newer content. Comparing against the load-time snapshot also
+            # preserves deletions made by clear_old().
+            current = {item.id: item for item in self.items}
+            changed_ids = {
+                item_id for item_id, item in current.items()
+                if self._loaded_state.get(item_id) != item.to_dict()
+            }
+            deleted_ids = set(self._loaded_state) - set(current)
+
+            merged = {item.id: item for item in disk_items}
+            order = [item.id for item in disk_items if item.id not in deleted_ids]
+            for item_id in deleted_ids:
+                merged.pop(item_id, None)
+            for item_id in changed_ids:
+                if item_id not in merged:
+                    order.append(item_id)
+                merged[item_id] = current[item_id]
+            final = [merged[i] for i in order][-500:]
+
+            dir_ = os.path.dirname(os.path.abspath(self.filepath)) or "."
+            fd, tmp = tempfile.mkstemp(dir=dir_, suffix=".tmp")
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump([item.to_dict() for item in final], f,
+                              ensure_ascii=False, indent=2)
+                os.replace(tmp, self.filepath)
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+
+            self.items = final
+            self._loaded_state = {item.id: item.to_dict() for item in final}
+        finally:
+            if _HAS_FCNTL:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+            lock.close()
 
     def add(self, item: UnifiedContent) -> bool:
-        if any(i.id == item.id for i in self.items):
-            return False
+        """Upsert by id. Returns True if the inbox changed (new or refreshed),
+        False if an identical item already exists. Re-fetching the same URL now
+        refreshes its content instead of being silently dropped."""
+        for idx, existing in enumerate(self.items):
+            if existing.id == item.id:
+                if existing.content == item.content and existing.title == item.title:
+                    return False
+                self.items[idx] = item
+                return True
         self.items.append(item)
         return True
 

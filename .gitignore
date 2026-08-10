@@ -19,6 +19,7 @@ tg_session*
 *.log
 data/
 unified_inbox.json
+unified_inbox.json.lock
 output/
 
 # Audio/video temp files
