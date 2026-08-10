@@ -140,6 +140,12 @@ def parse_input(input_file) -> list[dict]:
 async def _capture(page, cdp, url: str, mhtml_path: Path) -> str:
     """Snapshot one page to MHTML; return its <title>."""
     await page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_MS)
+    # SPA pages fetch their real content via XHR after DOMContentLoaded; a fixed
+    # delay races that fetch. Wait for the network to go idle first, then settle.
+    try:
+        await page.wait_for_load_state("networkidle", timeout=15000)
+    except Exception:
+        pass
     await page.wait_for_timeout(2500)
     title = (await page.title() or "").strip()
     snap = await cdp.send("Page.captureSnapshot", {"format": "mhtml"})
