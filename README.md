@@ -3,21 +3,22 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Universal content reader — fetch, transcribe, and digest content from any platform.
+Universal content reader — fetch, parse, transcribe, and digest content from URLs or local documents.
 
-Give it a URL (article, video, podcast, tweet), get back structured content. Works as CLI, Python library, MCP server, or Claude Code skills.
+Give it a URL (article, video, podcast, tweet) or a local office document, get back structured content. Works as CLI, Python library, MCP server, or Claude Code skills.
 
 **简体中文：** [README.zh-CN.md](./README.zh-CN.md)
 
 ## What It Does
 
 ```
-Any URL → Platform Detection → Fetch Content → Unified Output
-              ↓                      ↓
-         auto-detect           text: Jina Reader
-         7+ platforms          video: yt-dlp subtitles
-                               audio: Whisper transcription
-                               API: Bilibili / RSS / Telegram
+URL / Local Document → Source Detection → Read Content → Unified Output
+                              ↓                 ↓
+                         auto-detect       text: Jina Reader
+                         7+ platforms      document: anydoc (optional)
+                                           video: yt-dlp subtitles
+                                           audio: Whisper transcription
+                                           API: Bilibili / RSS / Telegram
 ```
 
 The Python layer handles text fetching and YouTube subtitle extraction. The **Claude Code skills** (optional) add full Whisper transcription for video/podcast and AI-powered content analysis.
@@ -32,6 +33,8 @@ sf-reader-all is composable. Use the layers you need:
 | **Claude Code Skills** | Video transcription + AI analysis | Copy `skills/` to `~/.claude/skills/` | Optional |
 | **MCP Server** | Expose reading as MCP tools | `python mcp_server.py` | Optional |
 
+Batch reads keep at most 16 Sources active, offload blocking libraries and subprocesses to a shared eight-worker pool, and cap a shared Browser Runtime at six pages. Successful Content Items cross the persistence boundary once: one inbox save and one Markdown append per batch.
+
 ### Layer 1: Python CLI
 
 ```bash
@@ -40,6 +43,9 @@ sf-reader-all https://mp.weixin.qq.com/s/abc123
 
 # Fetch a tweet
 sf-reader-all https://x.com/elonmusk/status/123456
+
+# Read a local office document (requires the documents extra)
+sf-reader-all ./report.docx
 
 # Fetch multiple URLs
 sf-reader-all https://url1.com https://url2.com
@@ -116,8 +122,11 @@ Claude Code config (`~/.claude/claude_desktop_config.json`):
 | 小宇宙 (Xiaoyuzhou) | — | ✅ via Claude Code skill |
 | Apple Podcasts | — | ✅ via Claude Code skill |
 | Any web page | ✅ Jina fallback | — |
+| Local documents (Word, PowerPoint, Excel, PDF, EPUB, CSV) | ✅ anydoc* | — |
 
 > \*XHS requires a one-time login: `sf-reader-all login xhs` (saves session for Playwright fallback)
+>
+> Local documents require the optional `documents` dependency. Image-only PDFs are not supported because local anydoc parsing does not include OCR.
 >
 > YouTube Whisper transcription requires `GROQ_API_KEY` — get a free key from [Groq](https://console.groq.com/keys)
 
@@ -133,6 +142,9 @@ pip install "sf-reader-all[telegram] @ git+https://github.com/GuinsooRocky/sf-re
 # With browser fallback (Playwright — for XHS/WeChat anti-scraping)
 pip install "sf-reader-all[browser] @ git+https://github.com/GuinsooRocky/sf-reader-all.git"
 playwright install chromium
+
+# With local office document support (anydoc)
+pip install "sf-reader-all[documents] @ git+https://github.com/GuinsooRocky/sf-reader-all.git"
 
 # With all optional dependencies
 pip install "sf-reader-all[all] @ git+https://github.com/GuinsooRocky/sf-reader-all.git"
@@ -178,6 +190,12 @@ async def main():
 asyncio.run(main())
 ```
 
+After installing the `documents` extra, the Python library reads local files through `read_file`:
+
+```python
+content = await reader.read_file("./report.docx")
+```
+
 ## Configuration
 
 Copy `.env.example` to `.env`:
@@ -205,6 +223,7 @@ sf-reader-all/
 │   ├── schema.py          # Unified data model (UnifiedContent + Inbox)
 │   ├── login.py           # Browser login manager (saves sessions)
 │   ├── fetchers/
+│   │   ├── browser_runtime.py # Reusable Playwright browser/context lifecycle
 │   │   ├── jina.py        # Jina Reader (universal fallback)
 │   │   ├── browser.py     # Playwright headless (anti-scraping fallback)
 │   │   ├── bilibili.py    # Bilibili API
@@ -214,8 +233,11 @@ sf-reader-all/
 │   │   ├── twitter.py     # Jina-based
 │   │   ├── wechat.py      # Jina → Playwright fallback
 │   │   └── xhs.py         # Jina → Playwright + session fallback
+│   ├── parsers/
+│   │   └── document.py    # Optional anydoc adapter for local files
 │   └── utils/
-│       └── storage.py     # JSON + Markdown dual output
+│       ├── async_runtime.py # Bounded blocking-I/O worker pool
+│       └── storage.py     # Batched inbox + Markdown output
 ├── skills/                # Claude Code skills
 │   ├── video/             # Video/podcast → transcript + summary
 │   └── analyzer/          # Content → structured analysis
@@ -240,7 +262,12 @@ User sends URL
     │
     └─ Analysis requested
         └─ Analyzer skill → structured report + action items
+
+User sends local document
+    └─ anydoc adapter → Markdown → UnifiedContent → inbox
 ```
+
+Archive manifests record navigation, content-settle, snapshot, MHTML conversion, queue, and total timings. These measurements are the gate for moving MHTML conversion to Rust; the project does not assume a rewrite will be faster without profile evidence.
 
 ## License
 

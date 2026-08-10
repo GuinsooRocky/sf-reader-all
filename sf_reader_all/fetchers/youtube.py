@@ -17,7 +17,8 @@ import tempfile
 from loguru import logger
 from typing import Dict, Any
 
-from sf_reader_all.fetchers.jina import fetch_via_jina
+from sf_reader_all.fetchers.jina import fetch_via_jina_async
+from sf_reader_all.utils.async_runtime import run_blocking
 
 
 def _extract_video_id(url: str) -> str:
@@ -187,17 +188,17 @@ async def fetch_youtube(url: str, sub_lang: str = "en") -> Dict[str, Any]:
     video_id = _extract_video_id(url)
 
     # Step 1: Get metadata via Jina (fast, always works)
-    jina_data = fetch_via_jina(url)
+    jina_data = await fetch_via_jina_async(url)
     title = jina_data["title"]
 
     # Step 2: Try yt-dlp auto-subtitles
     logger.info(f"Extracting subtitles ({sub_lang})...")
-    transcript = _get_subtitles_via_ytdlp(url, lang=sub_lang)
+    transcript = await run_blocking(_get_subtitles_via_ytdlp, url, lang=sub_lang)
 
     # Step 3: No subtitles? Try Whisper transcription
     if not transcript:
         logger.info("No subtitles available, trying Whisper transcription...")
-        transcript = _transcribe_via_whisper(url)
+        transcript = await run_blocking(_transcribe_via_whisper, url)
 
     if transcript:
         logger.info(f"Got transcript: {len(transcript)} chars")

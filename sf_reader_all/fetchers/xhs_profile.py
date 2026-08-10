@@ -19,16 +19,20 @@ content (serial / low-concurrency, per the project's anti-scrape red line).
 Needs the [browser] extra: pip install "sf-reader-all[browser]"
 """
 
-import re
+import asyncio
 from pathlib import Path
 from urllib.parse import urlparse
 
 from loguru import logger
 
+from sf_reader_all.fetchers.browser_runtime import (
+    BrowserMode,
+    BrowserRuntime,
+    use_browser_runtime,
+)
+from sf_reader_all.utils.async_runtime import run_blocking
+
 SESSION_DIR = Path.home() / ".sf-reader-all" / "sessions"
-UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-      "AppleWebKit/537.36 (KHTML, like Gecko) "
-      "Chrome/120.0.0.0 Safari/537.36")
 
 # The risk wall text XHS shows when it flags an automated profile visit.
 _RISK_MARKERS = ("安全限制", "访问链接异常", "300017")
@@ -59,6 +63,30 @@ _HARVEST_JS = r"""() => {
     return out;
 }"""
 
+_PROFILE_READY_JS = r"""() => {
+    const body = document.body ? document.body.innerText : '';
+    const risk = ['安全限制', '访问链接异常', '300017']
+        .some((marker) => body.includes(marker));
+    const login = location.href.includes('login')
+        || body.includes('登录后推荐更懂你的笔记');
+    const profile = document.querySelector(
+        'section.note-item, .user-name, .user-info'
+    );
+    return Boolean(risk || login || profile);
+}"""
+
+_NEW_CARDS_JS = r"""(seen) => {
+    const noteId = (h) =>
+        (h.match(/\/user\/profile\/[0-9a-fA-F]+\/([0-9a-fA-F]+)/)
+         || h.match(/\/(?:explore|discovery\/item)\/([0-9a-fA-F]+)/) || [])[1];
+    const old = new Set(seen);
+    for (const a of document.querySelectorAll('section.note-item a[href]')) {
+        const id = noteId(a.href);
+        if (id && !old.has(id)) return true;
+    }
+    return false;
+}"""
+
 
 async def harvest_profile(
     url: str,
@@ -68,6 +96,8 @@ async def harvest_profile(
     scroll_wait_ms: int = 1800,
     stable_rounds: int = 4,
     session: str = None,
+    runtime: BrowserRuntime | None = None,
+    timeout_ms: int = 180_000,
 ) -> list[dict]:
     """Load an XHS profile, scroll it to the bottom, return every note link.
 
@@ -80,9 +110,12 @@ async def harvest_profile(
             xhslink.com short link redirects to a fresh token). Set False only
             if a risk wall persists.
         max_scrolls: Hard cap on scroll iterations (safety backstop).
-        scroll_wait_ms: Pause after each scroll for lazy-loaded cards to render.
+        scroll_wait_ms: Maximum settle window after each scroll; returns early
+            when a new lazy-loaded card appears.
         stable_rounds: Stop once this many consecutive scrolls find no new notes.
         session: Session name/path; defaults to the saved xhs session.
+        runtime: Entered BrowserRuntime to reuse across profile harvests/fetches.
+        timeout_ms: Total browser acquisition, navigation, and harvest deadline.
 
     Returns:
         List of {"id", "href", "text"} note links, in document order.
@@ -91,16 +124,7 @@ async def harvest_profile(
         RuntimeError: risk wall hit, session missing/expired, or Playwright absent.
     """
     from sf_reader_all.utils.url_validator import validate_url
-    validate_url(url)
-
-    try:
-        from playwright.async_api import async_playwright
-    except ImportError:
-        raise RuntimeError(
-            "Playwright is not installed. Run:\n"
-            '  pip install "sf-reader-all[browser]"\n'
-            "  playwright install chromium"
-        )
+    await run_blocking(validate_url, url)
 
     session_path = _resolve_session(session)
     if not session_path or not Path(session_path).exists():
@@ -110,29 +134,60 @@ async def harvest_profile(
             "   Then retry."
         )
 
+    try:
+        return await asyncio.wait_for(
+            _harvest_with_runtime(
+                url,
+                session_path=session_path,
+                runtime=runtime,
+                headless=headless,
+                max_scrolls=max_scrolls,
+                scroll_wait_ms=scroll_wait_ms,
+                stable_rounds=stable_rounds,
+                navigation_timeout_ms=min(60_000, timeout_ms),
+            ),
+            timeout=timeout_ms / 1000,
+        )
+    except asyncio.TimeoutError as exc:
+        raise RuntimeError(
+            f"XHS profile harvest exceeded {timeout_ms} ms total deadline: {url}"
+        ) from exc
+
+
+async def _harvest_with_runtime(
+    url: str,
+    *,
+    session_path: Path,
+    runtime: BrowserRuntime | None,
+    headless: bool,
+    max_scrolls: int,
+    scroll_wait_ms: int,
+    stable_rounds: int,
+    navigation_timeout_ms: int,
+) -> list[dict]:
     notes: dict[str, dict] = {}
 
-    async with async_playwright() as p:
-        # Same anti-detection combo as login.py: real Chrome + no automation flag.
-        launch_args = dict(
+    async with use_browser_runtime(runtime) as active_runtime:
+        async with active_runtime.page(
+            mode=BrowserMode.STEALTH,
             headless=headless,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
-        try:
-            browser = await p.chromium.launch(channel="chrome", **launch_args)
-        except Exception:
-            logger.warning("[XHS-profile] real Chrome unavailable, using bundled Chromium")
-            browser = await p.chromium.launch(**launch_args)
-
-        context = await browser.new_context(
-            user_agent=UA,
-            viewport={"width": 1280, "height": 2000},
-            storage_state=str(session_path),
-        )
-        page = await context.new_page()
-        try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-            await page.wait_for_timeout(3000)
+            storage_state=session_path,
+            viewport=(1280, 2000),
+        ) as page:
+            await page.goto(
+                url,
+                wait_until="domcontentloaded",
+                timeout=navigation_timeout_ms,
+            )
+            try:
+                await page.wait_for_function(
+                    _PROFILE_READY_JS,
+                    timeout=min(15_000, navigation_timeout_ms),
+                )
+            except Exception:
+                logger.warning(
+                    "[XHS-profile] profile content not ready; inspecting current DOM"
+                )
 
             body_head = (await page.inner_text("body"))[:300]
             if any(m in body_head for m in _RISK_MARKERS):
@@ -167,8 +222,9 @@ async def harvest_profile(
                         prev["text"] = b["text"]
                     if "xsec_token" in b["href"] and "xsec_token" not in prev["href"]:
                         prev["href"] = b["href"]
+
                 await page.mouse.wheel(0, 6000)
-                await page.wait_for_timeout(scroll_wait_ms)
+                await _wait_for_new_cards(page, batch, scroll_wait_ms)
                 if len(notes) == last:
                     stagnant += 1
                 else:
@@ -179,9 +235,23 @@ async def harvest_profile(
                     break
 
             return [_canonicalize(n) for n in notes.values()]
-        finally:
-            await context.close()
-            await browser.close()
+
+
+async def _wait_for_new_cards(page, batch: list[dict], timeout_ms: int) -> None:
+    """Return as soon as scrolling renders a card absent from the last batch."""
+    if timeout_ms <= 0:
+        return
+    seen = [note["id"] for note in batch]
+    try:
+        await page.wait_for_function(
+            _NEW_CARDS_JS,
+            arg=seen,
+            timeout=timeout_ms,
+        )
+    except Exception:
+        # No new card within the settle window is a normal signal used by the
+        # stable-round counter, not a fetch failure.
+        pass
 
 
 def _canonicalize(note: dict) -> dict:

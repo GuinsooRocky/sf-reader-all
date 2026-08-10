@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-sf-reader-all CLI — fetch content from any platform.
+sf-reader-all CLI — read URLs and local documents.
 
 Usage:
-    sf-reader-all <url>                     # Fetch a single URL
-    sf-reader-all <url1> <url2> ...         # Fetch multiple URLs
+    sf-reader-all <source>                  # Read a URL or local document
+    sf-reader-all <source1> <source2> ...   # Read multiple sources
     sf-reader-all archive-links <url>       # Harvest same-origin links from a page
     sf-reader-all archive <urls-file>       # Snapshot a URL list into self-contained HTML
     sf-reader-all list                      # Show inbox contents
@@ -29,8 +29,8 @@ def get_inbox_path() -> str:
     return os.getenv("INBOX_FILE", "unified_inbox.json")
 
 
-def cmd_fetch(urls: list[str], as_json: bool = False):
-    """Fetch one or more URLs.
+def cmd_fetch(sources: list[str], as_json: bool = False):
+    """Read one or more URLs or local documents.
 
     as_json: machine interface — print fetched items as a JSON array on
     stdout (human logs go to stderr), so callers don't have to locate and
@@ -41,15 +41,15 @@ def cmd_fetch(urls: list[str], as_json: bool = False):
     log = sys.stderr if as_json else sys.stdout
 
     async def run():
-        if len(urls) == 1:
-            items = [await reader.read(urls[0])]
+        if len(sources) == 1:
+            items = [await reader.read_source(sources[0])]
         else:
-            items = await reader.read_batch(urls)
+            items = await reader.read_sources(sources)
 
         for item in items:
             print(f"✅ [{item.source_type.value}] {item.title[:60]}", file=log)
-        if len(urls) > 1:
-            print(f"\n📦 Fetched {len(items)}/{len(urls)} URLs", file=log)
+        if len(sources) > 1:
+            print(f"\n📦 Read {len(items)}/{len(sources)} sources", file=log)
 
         if as_json:
             print(json.dumps([item.to_dict() for item in items], ensure_ascii=False))
@@ -76,7 +76,8 @@ def cmd_list():
         SourceType.TELEGRAM: "📢", SourceType.RSS: "📰",
         SourceType.BILIBILI: "🎬", SourceType.XIAOHONGSHU: "📕",
         SourceType.TWITTER: "🐦", SourceType.WECHAT: "💬",
-        SourceType.YOUTUBE: "▶️", SourceType.MANUAL: "✏️",
+        SourceType.YOUTUBE: "▶️", SourceType.DOCUMENT: "📄",
+        SourceType.MANUAL: "✏️",
     }
 
     for i, item in enumerate(inbox.items[-20:], 1):
@@ -216,8 +217,8 @@ def main():
 📖 sf-reader-all — Universal content reader
 
 Usage:
-    sf-reader-all <url>              Fetch content from any URL
-    sf-reader-all <url1> <url2>      Fetch multiple URLs
+    sf-reader-all <source>           Read a URL or local document
+    sf-reader-all <source1> <source2> Read multiple sources
     sf-reader-all login <platform>   Login to a platform (saves session for browser fallback)
     sf-reader-all archive-links <url>   Harvest same-origin links from a page
     sf-reader-all xhs-profile <url>     Harvest all note links from an XHS profile
@@ -227,12 +228,14 @@ Usage:
 
 Supported platforms:
     WeChat, Telegram, X/Twitter, YouTube,
-    Bilibili, Xiaohongshu, RSS, and any web page
+    Bilibili, Xiaohongshu, RSS, any web page,
+    and local office documents (optional dependency)
 
 Examples:
     sf-reader-all https://mp.weixin.qq.com/s/abc123
     sf-reader-all https://x.com/elonmusk/status/123456
     sf-reader-all https://www.xiaohongshu.com/explore/abc123
+    sf-reader-all ./report.docx
     sf-reader-all login xhs
 """)
         return
@@ -259,12 +262,12 @@ Examples:
     elif cmd == "--json" or cmd.startswith("http") or cmd.startswith("www.") or "." in cmd:
         args = sys.argv[1:]
         as_json = "--json" in args
-        urls = [a for a in args
-                if not a.startswith("--") and (a.startswith(("http", "www.")) or "." in a)]
-        if not urls:
-            print("❌ Usage: sf-reader-all [--json] <url> [url2 ...]")
+        sources = [a for a in args
+                   if not a.startswith("--") and (a.startswith(("http", "www.")) or "." in a)]
+        if not sources:
+            print("❌ Usage: sf-reader-all [--json] <source> [source2 ...]")
             sys.exit(1)
-        cmd_fetch(urls, as_json=as_json)
+        cmd_fetch(sources, as_json=as_json)
     else:
         print(f"❌ Unknown command: {cmd}")
         print("   Run 'sf-reader-all' with no args for help")

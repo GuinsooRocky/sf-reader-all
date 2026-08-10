@@ -17,6 +17,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from html import escape as _esc
 from pathlib import Path
 from urllib.parse import quote, urlparse
@@ -24,13 +25,77 @@ from urllib.parse import quote, urlparse
 from loguru import logger
 
 from sf_reader_all.utils.mhtml import mhtml_to_selfcontained
+from sf_reader_all.utils.async_runtime import run_blocking
 from sf_reader_all.utils.url_validator import validate_url
 
 SESSION_DIR = Path.home() / ".sf-reader-all" / "sessions"
 TIMEOUT_MS = 60_000
+ITEM_TIMEOUT_MS = 120_000
+RESOURCE_CLOSE_TIMEOUT_SECONDS = 10
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
       "AppleWebKit/537.36 (KHTML, like Gecko) "
       "Chrome/120.0.0.0 Safari/537.36")
+
+
+def _is_timeout_exception(exc: BaseException) -> bool:
+    """Recognize asyncio, builtin, and Playwright timeout exceptions."""
+    return isinstance(exc, (asyncio.TimeoutError, TimeoutError)) or (
+        exc.__class__.__name__ == "TimeoutError"
+    )
+
+
+async def _close_resource(resource, label: str) -> None:
+    """Best-effort bounded close without hiding task cancellation."""
+    if resource is None:
+        return
+    try:
+        await asyncio.wait_for(
+            resource.close(), timeout=RESOURCE_CLOSE_TIMEOUT_SECONDS
+        )
+    except asyncio.CancelledError:
+        raise
+    except asyncio.TimeoutError:
+        logger.warning(f"Timed out closing archive {label}")
+    except Exception as exc:
+        logger.warning(f"Failed to close archive {label}: {exc}")
+
+
+async def _launch_browser(playwright):
+    """Use bundled Chromium when present, otherwise the installed Chrome."""
+    try:
+        return await playwright.chromium.launch(headless=True)
+    except Exception:
+        logger.warning(
+            "Bundled Chromium unavailable for archive; trying installed Chrome"
+        )
+        return await playwright.chromium.launch(channel="chrome", headless=True)
+
+
+async def _run_conversion_cancellation_safe(func, *args, **kwargs):
+    """Keep the backing thread alive and awaited if its caller is cancelled.
+
+    ``asyncio.to_thread`` cannot stop work that has already started. Shielding
+    and draining its task keeps the caller's conversion semaphore occupied
+    until that work really ends, while still propagating cancellation.
+    """
+    task = asyncio.create_task(asyncio.to_thread(func, *args, **kwargs))
+    cancellation = None
+    while True:
+        try:
+            result = await asyncio.shield(task)
+        except asyncio.CancelledError as exc:
+            if cancellation is None:
+                cancellation = exc
+            if task.cancelled():
+                raise cancellation
+            continue
+        except BaseException:
+            if cancellation is not None:
+                raise cancellation
+            raise
+        if cancellation is not None:
+            raise cancellation
+        return result
 
 
 def session_for(name_or_url):
@@ -67,12 +132,12 @@ async def harvest_links(url: str, *, session=None) -> list[dict]:
     document order. Intentionally unfiltered — it does not try to tell
     article links from navigation chrome; the caller curates.
     """
-    validate_url(url)
+    await run_blocking(validate_url, url)
     from playwright.async_api import async_playwright
 
     session_path = session_for(session)
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await _launch_browser(p)
         ctx_kw = {"user_agent": UA}
         if session_path and Path(session_path).exists():
             ctx_kw["storage_state"] = str(session_path)
@@ -137,20 +202,92 @@ def parse_input(input_file) -> list[dict]:
     return entries
 
 
-async def _capture(page, cdp, url: str, mhtml_path: Path) -> str:
-    """Snapshot one page to MHTML; return its <title>."""
-    await page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_MS)
-    # SPA pages fetch their real content via XHR after DOMContentLoaded; a fixed
-    # delay races that fetch. Wait for the network to go idle first, then settle.
+async def _wait_for_stable_content(page, *, timeout_ms=2500) -> bool:
+    """Return whether visible content stabilized before the deadline."""
     try:
-        await page.wait_for_load_state("networkidle", timeout=15000)
-    except Exception:
-        pass
-    await page.wait_for_timeout(2500)
+        await page.wait_for_function(
+            r"""() => {
+                const body = document.body;
+                if (!body) return false;
+                const images = Array.from(document.images || []);
+                const key = [
+                    (body.innerText || '').length,
+                    body.childElementCount,
+                    images.length,
+                    images.filter(img => img.complete).length,
+                ].join(':');
+                const now = Date.now();
+                if (window.__sfReaderStableKey !== key) {
+                    window.__sfReaderStableKey = key;
+                    window.__sfReaderStableSince = now;
+                    return false;
+                }
+                return now - (window.__sfReaderStableSince || now) >= 500;
+            }""",
+            timeout=timeout_ms,
+            polling=200,
+        )
+        return True
+    except Exception as exc:
+        if not _is_timeout_exception(exc):
+            raise
+        # Dynamic pages may never become completely still. The caller already
+        # has an item deadline, so capture the latest rendered state.
+        return False
+
+
+async def _capture(
+    page,
+    cdp,
+    url: str,
+    mhtml_path: Path,
+    metrics: dict | None = None,
+) -> tuple[str, dict]:
+    """Snapshot one page to MHTML and return its title plus stage metrics."""
+    metrics = metrics if metrics is not None else {}
+    metrics["_stage"] = "navigation"
+    started = time.perf_counter()
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_MS)
+    finally:
+        metrics["navigation_ms"] = round(
+            (time.perf_counter() - started) * 1000, 2)
+
+    # SPA pages fetch their real content via XHR after DOMContentLoaded; a fixed
+    # delay races that fetch. Wait for the network to go idle, then detect a
+    # short stable-content window instead of always sleeping for 2.5 seconds.
+    metrics["_stage"] = "settle"
+    settle_started = time.perf_counter()
+    try:
+        metrics["network_idle_timed_out"] = False
+        try:
+            await page.wait_for_load_state("networkidle", timeout=15000)
+        except Exception as exc:
+            if not _is_timeout_exception(exc):
+                raise
+            metrics["network_idle_timed_out"] = True
+        metrics["stable_content_timed_out"] = not (
+            await _wait_for_stable_content(page)
+        )
+    finally:
+        metrics["settle_ms"] = round(
+            (time.perf_counter() - settle_started) * 1000, 2)
+
+    metrics["_stage"] = "title"
     title = (await page.title() or "").strip()
-    snap = await cdp.send("Page.captureSnapshot", {"format": "mhtml"})
-    mhtml_path.write_text(snap["data"], encoding="utf-8")
-    return title
+    metrics["_stage"] = "snapshot"
+    snapshot_started = time.perf_counter()
+    try:
+        snap = await cdp.send("Page.captureSnapshot", {"format": "mhtml"})
+        await asyncio.to_thread(
+            mhtml_path.write_text, snap["data"], encoding="utf-8"
+        )
+        metrics["mhtml_bytes"] = mhtml_path.stat().st_size
+    finally:
+        metrics["snapshot_ms"] = round(
+            (time.perf_counter() - snapshot_started) * 1000, 2)
+    metrics.pop("_stage", None)
+    return title, metrics
 
 
 def write_index(out_dir, entries, *, theme="dark") -> None:
@@ -204,14 +341,90 @@ def write_index(out_dir, entries, *, theme="dark") -> None:
 
 def _write_manifest(out_dir, entries) -> None:
     data = [{k: e.get(k) for k in
-             ("index", "section", "url", "title", "file", "status", "error")}
+             ("index", "section", "url", "title", "file", "status", "error",
+              "failure_stage", "timed_out", "timeout_stage", "item_timeout_ms",
+              "network_idle_timed_out", "stable_content_timed_out",
+              "navigation_ms", "settle_ms", "snapshot_ms", "convert_ms",
+              "convert_queue_ms", "total_ms", "mhtml_bytes", "html_bytes")}
             for e in entries]
     (Path(out_dir) / "manifest.json").write_text(
         json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+async def _archive_item(
+    page,
+    cdp,
+    entry: dict,
+    *,
+    out: Path,
+    mhtml_dir: Path,
+    convert_slots: asyncio.Semaphore,
+    theme: str,
+    strip_patterns,
+) -> None:
+    """Capture and convert one entry; the worker owns its total deadline."""
+    idx = entry["index"]
+    mhtml_path = mhtml_dir / f"{idx:03d}.mhtml"
+    capture_metrics: dict = {}
+    try:
+        page_title, _ = await _capture(
+            page,
+            cdp,
+            entry["url"],
+            mhtml_path,
+            metrics=capture_metrics,
+        )
+    finally:
+        entry.update(capture_metrics)
+
+    entry["title"] = entry["title"] or page_title or entry["url"]
+    html_path = out / f"{idx:03d}-{_safe_name(entry['title'])}.html"
+    entry["_stage"] = "convert_queue"
+    queue_started = time.perf_counter()
+    try:
+        async with convert_slots:
+            entry["convert_queue_ms"] = round(
+                (time.perf_counter() - queue_started) * 1000, 2)
+            entry["_stage"] = "convert"
+            convert_started = time.perf_counter()
+            try:
+                entry["html_bytes"] = (
+                    await _run_conversion_cancellation_safe(
+                        mhtml_to_selfcontained,
+                        mhtml_path,
+                        html_path,
+                        theme=theme,
+                        strip_patterns=strip_patterns,
+                    )
+                )
+            except asyncio.CancelledError:
+                # The shielded thread has finished before cancellation is
+                # propagated, so remove its now-unwanted complete output.
+                try:
+                    html_path.unlink(missing_ok=True)
+                except OSError as exc:
+                    logger.warning(
+                        f"Failed to remove cancelled conversion output "
+                        f"{html_path}: {exc}"
+                    )
+                raise
+            finally:
+                entry["convert_ms"] = round(
+                    (time.perf_counter() - convert_started) * 1000, 2)
+    finally:
+        if "convert_queue_ms" not in entry:
+            entry["convert_queue_ms"] = round(
+                (time.perf_counter() - queue_started) * 1000, 2)
+
+    mhtml_path.unlink(missing_ok=True)
+    entry["file"] = html_path.name
+    entry["status"] = "ok"
+    entry.pop("_stage", None)
+
+
 async def run_archive(input_file, out_dir, *, theme="dark", concurrency=5,
-                      strip_patterns=(), session=None) -> list[dict]:
+                      strip_patterns=(), session=None,
+                      item_timeout_ms=ITEM_TIMEOUT_MS) -> list[dict]:
     """Snapshot every URL in `input_file` into self-contained HTML.
 
     Incremental: an entry whose `NNN-*.html` already exists is skipped.
@@ -219,8 +432,12 @@ async def run_archive(input_file, out_dir, *, theme="dark", concurrency=5,
     entries = parse_input(input_file)
     if not entries:
         raise ValueError(f"no URLs found in {input_file}")
-    for e in entries:
-        validate_url(e["url"])
+    if item_timeout_ms <= 0:
+        raise ValueError("item_timeout_ms must be greater than zero")
+    await asyncio.gather(*(
+        run_blocking(validate_url, entry["url"])
+        for entry in entries
+    ))
     for i, e in enumerate(entries, 1):
         e["index"] = i
 
@@ -238,55 +455,122 @@ async def run_archive(input_file, out_dir, *, theme="dark", concurrency=5,
     for e in entries:
         queue.put_nowait(e)
     results: list[dict] = []
+    convert_slots = asyncio.Semaphore(max(1, min(2, concurrency)))
+    existing_by_index = {}
+    for html_path in out.glob("[0-9][0-9][0-9]-*.html"):
+        try:
+            index = int(html_path.name[:3])
+        except ValueError:
+            continue
+        previous = existing_by_index.get(index)
+        if previous is None or html_path.name < previous.name:
+            existing_by_index[index] = html_path
 
     async def worker(wid: int, context):
-        page = await context.new_page()
-        cdp = await context.new_cdp_session(page)
-        while True:
-            try:
-                e = queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-            idx = e["index"]
-            try:
-                existing = sorted(out.glob(f"{idx:03d}-*.html"))
+        page = None
+        try:
+            page = await context.new_page()
+            cdp = await context.new_cdp_session(page)
+            while True:
+                try:
+                    e = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                idx = e["index"]
+                item_started = time.perf_counter()
+                existing = existing_by_index.get(idx)
                 if existing:
-                    e["file"] = existing[0].name
+                    e["file"] = existing.name
                     e["status"] = "skip"
-                    e["title"] = e["title"] or existing[0].stem.split("-", 1)[-1]
+                    e["title"] = e["title"] or existing.stem.split("-", 1)[-1]
+                    e["timed_out"] = False
+                    e["total_ms"] = round(
+                        (time.perf_counter() - item_started) * 1000, 2)
                     logger.info(f"[W{wid}] skip {idx:03d} (exists)")
                     results.append(e)
                     continue
-                mhtml_path = mhtml_dir / f"{idx:03d}.mhtml"
-                page_title = await _capture(page, cdp, e["url"], mhtml_path)
-                e["title"] = e["title"] or page_title or e["url"]
-                html_path = out / f"{idx:03d}-{_safe_name(e['title'])}.html"
-                mhtml_to_selfcontained(mhtml_path, html_path, theme=theme,
-                                       strip_patterns=strip_patterns)
-                mhtml_path.unlink(missing_ok=True)
-                e["file"] = html_path.name
-                e["status"] = "ok"
-                logger.info(f"[W{wid}] ok {idx:03d} {e['title'][:50]}")
-            except Exception as exc:
-                e["status"] = "fail"
-                e["error"] = str(exc)
-                e["file"] = ""
-                logger.error(f"[W{wid}] fail {idx:03d} {e['url']}: {exc}")
-            results.append(e)
-        await page.close()
+
+                e["item_timeout_ms"] = item_timeout_ms
+                e["timed_out"] = False
+                try:
+                    await asyncio.wait_for(
+                        _archive_item(
+                            page,
+                            cdp,
+                            e,
+                            out=out,
+                            mhtml_dir=mhtml_dir,
+                            convert_slots=convert_slots,
+                            theme=theme,
+                            strip_patterns=strip_patterns,
+                        ),
+                        timeout=item_timeout_ms / 1000,
+                    )
+                    logger.info(
+                        f"[W{wid}] ok {idx:03d} {e['title'][:50]} "
+                        f"(nav={e['navigation_ms']}ms settle={e['settle_ms']}ms "
+                        f"convert={e['convert_ms']}ms)"
+                    )
+                except asyncio.TimeoutError:
+                    stage = e.get("_stage", "unknown")
+                    e["status"] = "fail"
+                    e["timed_out"] = True
+                    e["timeout_stage"] = stage
+                    e["failure_stage"] = stage
+                    e["error"] = (
+                        f"item exceeded {item_timeout_ms} ms deadline "
+                        f"during {stage}"
+                    )
+                    e["file"] = ""
+                    logger.error(
+                        f"[W{wid}] timeout {idx:03d} {e['url']}: {e['error']}"
+                    )
+                except Exception as exc:
+                    stage = e.get("_stage", "unknown")
+                    e["status"] = "fail"
+                    e["failure_stage"] = stage
+                    if _is_timeout_exception(exc):
+                        e["timed_out"] = True
+                        e["timeout_stage"] = stage
+                    e["error"] = str(exc)
+                    e["file"] = ""
+                    logger.error(f"[W{wid}] fail {idx:03d} {e['url']}: {exc}")
+                finally:
+                    e["total_ms"] = round(
+                        (time.perf_counter() - item_started) * 1000, 2)
+                    e.pop("_stage", None)
+                results.append(e)
+        finally:
+            await _close_resource(page, f"worker {wid} page")
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        ctx_kw = {"user_agent": UA,
-                  "viewport": {"width": 1440, "height": 1100}}
-        if session_path and Path(session_path).exists():
-            ctx_kw["storage_state"] = str(session_path)
-            logger.info(f"using session: {session_path}")
-        context = await browser.new_context(**ctx_kw)
-        await asyncio.gather(*[asyncio.create_task(worker(i + 1, context))
-                               for i in range(max(1, concurrency))])
-        await context.close()
-        await browser.close()
+        browser = None
+        context = None
+        worker_tasks = []
+        try:
+            browser = await _launch_browser(p)
+            ctx_kw = {"user_agent": UA,
+                      "viewport": {"width": 1440, "height": 1100}}
+            if session_path and Path(session_path).exists():
+                ctx_kw["storage_state"] = str(session_path)
+                logger.info(f"using session: {session_path}")
+            context = await browser.new_context(**ctx_kw)
+            worker_tasks = [
+                asyncio.create_task(worker(i + 1, context))
+                for i in range(max(1, concurrency))
+            ]
+            try:
+                await asyncio.gather(*worker_tasks)
+            finally:
+                for task in worker_tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*worker_tasks, return_exceptions=True)
+        finally:
+            try:
+                await _close_resource(context, "context")
+            finally:
+                await _close_resource(browser, "browser")
 
     results.sort(key=lambda e: e["index"])
     write_index(out, results, theme=theme)

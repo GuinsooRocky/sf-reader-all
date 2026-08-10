@@ -14,7 +14,7 @@ Defines the standard data format for all content sources:
 """
 
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 from enum import Enum
 import hashlib
@@ -29,6 +29,17 @@ except ImportError:  # pragma: no cover
     _HAS_FCNTL = False
 
 
+def _fetched_at_timestamp(value: str) -> float:
+    """Normalize stored ISO timestamps for conflict resolution."""
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.timestamp()
+    except (AttributeError, TypeError, ValueError):
+        return float("-inf")
+
+
 class SourceType(str, Enum):
     """Content source types."""
     TELEGRAM = "telegram"
@@ -38,6 +49,7 @@ class SourceType(str, Enum):
     TWITTER = "twitter"
     WECHAT = "wechat"
     YOUTUBE = "youtube"
+    DOCUMENT = "document"
     MANUAL = "manual"
 
 
@@ -241,6 +253,7 @@ class UnifiedInbox:
         self.filepath = filepath
         self.items: List[UnifiedContent] = []
         self._loaded_state: dict[str, dict] = {}
+        self._dirty = False
         self.load()
 
     def load(self):
@@ -254,6 +267,12 @@ class UnifiedInbox:
             except (json.JSONDecodeError, IOError):
                 self.items = []
         self._loaded_state = {item.id: item.to_dict() for item in self.items}
+        self._dirty = False
+
+    @property
+    def is_dirty(self) -> bool:
+        """Whether this in-memory inbox still has unsaved changes."""
+        return self._dirty
 
     def save(self):
         """Persist the inbox atomically, merging with the on-disk state.
@@ -297,9 +316,15 @@ class UnifiedInbox:
             for item_id in deleted_ids:
                 merged.pop(item_id, None)
             for item_id in changed_ids:
+                candidate = current[item_id]
+                disk_item = merged.get(item_id)
+                if disk_item and _fetched_at_timestamp(
+                    candidate.fetched_at
+                ) < _fetched_at_timestamp(disk_item.fetched_at):
+                    continue
                 if item_id not in merged:
                     order.append(item_id)
-                merged[item_id] = current[item_id]
+                merged[item_id] = candidate
             final = [merged[i] for i in order][-500:]
 
             dir_ = os.path.dirname(os.path.abspath(self.filepath)) or "."
@@ -315,6 +340,7 @@ class UnifiedInbox:
 
             self.items = final
             self._loaded_state = {item.id: item.to_dict() for item in final}
+            self._dirty = False
         finally:
             if _HAS_FCNTL:
                 fcntl.flock(lock, fcntl.LOCK_UN)
@@ -329,8 +355,10 @@ class UnifiedInbox:
                 if existing.content == item.content and existing.title == item.title:
                     return False
                 self.items[idx] = item
+                self._dirty = True
                 return True
         self.items.append(item)
+        self._dirty = True
         return True
 
     def add_batch(self, items: List[UnifiedContent]) -> int:
@@ -345,11 +373,16 @@ class UnifiedInbox:
     def mark_processed(self, item_id: str, digest_date: str = None):
         for item in self.items:
             if item.id == item_id:
+                changed = not item.processed
                 item.processed = True
                 if digest_date:
+                    changed = changed or item.digest_date != digest_date
                     item.digest_date = digest_date
+                self._dirty = self._dirty or changed
                 break
 
     def clear_old(self, days: int = 7):
         cutoff = (datetime.now() - timedelta(days=days)).isoformat()
-        self.items = [i for i in self.items if i.fetched_at > cutoff]
+        kept = [i for i in self.items if i.fetched_at > cutoff]
+        self._dirty = self._dirty or len(kept) != len(self.items)
+        self.items = kept

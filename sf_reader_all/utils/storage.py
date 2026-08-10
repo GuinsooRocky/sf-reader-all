@@ -9,7 +9,7 @@ Implements the "atomic archiving" from the tweet:
 
 import json
 import os
-from datetime import datetime
+from collections.abc import Iterable
 from pathlib import Path
 from loguru import logger
 
@@ -39,16 +39,8 @@ def save_to_json(item: UnifiedContent, filepath: str = "unified_inbox.json"):
     logger.info(f"Saved to JSON: {path}")
 
 
-def save_to_markdown(item: UnifiedContent, filepath: str = None):
-    """
-    Append content to a Markdown file (e.g. Obsidian vault).
-
-    Supports two output modes:
-    - OUTPUT_DIR: Write to {OUTPUT_DIR}/content_hub.md
-    - OBSIDIAN_VAULT: Write to {OBSIDIAN_VAULT}/01-收集箱/sf-reader-all-inbox.md
-
-    If neither is set, skips markdown output.
-    """
+def _markdown_path(filepath: str = None) -> Path | None:
+    """Resolve and validate the configured Markdown destination."""
     if not filepath:
         # Priority 1: Obsidian vault
         vault_path = os.getenv("OBSIDIAN_VAULT", "")
@@ -58,7 +50,7 @@ def save_to_markdown(item: UnifiedContent, filepath: str = None):
             # Priority 2: generic output dir
             output_dir = os.getenv("OUTPUT_DIR", "")
             if not output_dir:
-                return
+                return None
             filepath = os.path.join(output_dir, "content_hub.md")
 
     # Security: Validate filepath to prevent path traversal attacks
@@ -82,28 +74,75 @@ def save_to_markdown(item: UnifiedContent, filepath: str = None):
     # Always allow /tmp for temporary files
     allowed_dirs.append("/tmp")
     
-    # Check if filepath is in any allowed directory
-    if not any(abs_filepath.startswith(d) for d in allowed_dirs):
+    # commonpath respects path-component boundaries; a string prefix check would
+    # incorrectly treat /tmp-evil as being inside /tmp.
+    def is_within(directory: str) -> bool:
+        try:
+            return os.path.commonpath((abs_filepath, directory)) == directory
+        except ValueError:
+            return False
+
+    if not any(is_within(directory) for directory in allowed_dirs):
         raise ValueError(f"Security: Refusing to write outside allowed directories: {filepath}")
 
-    path = Path(filepath)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    return Path(abs_filepath)
+
+
+def _markdown_entry(item: UnifiedContent) -> str:
+    """Render one content item without touching the filesystem."""
 
     emoji = {
         "telegram": "📢", "rss": "📰", "bilibili": "🎬",
         "xhs": "📕", "twitter": "🐦", "wechat": "💬",
-        "youtube": "▶️", "manual": "✏️",
+        "youtube": "▶️", "document": "📄", "manual": "✏️",
     }.get(item.source_type.value, "📄")
 
-    with open(path, 'a', encoding='utf-8') as f:
-        f.write(f"\n## {emoji} {item.title}\n")
-        f.write(f"- Source: {item.source_name} ({item.source_type.value})\n")
-        f.write(f"- URL: {item.url}\n")
-        f.write(f"- Fetched: {item.fetched_at[:16]}\n\n")
-        f.write(f"{item.content[:2000]}\n")
-        f.write("\n---\n")
+    return (
+        f"\n## {emoji} {item.title}\n"
+        f"- Source: {item.source_name} ({item.source_type.value})\n"
+        f"- URL: {item.url}\n"
+        f"- Fetched: {item.fetched_at[:16]}\n\n"
+        f"{item.content[:2000]}\n"
+        "\n---\n"
+    )
 
-    logger.info(f"Saved to Markdown: {path}")
+
+def _append_markdown(items: list[UnifiedContent], filepath: str = None) -> None:
+    """Append a batch with one open, one lock, and one write call."""
+    if not items:
+        return
+    path = _markdown_path(filepath)
+    if path is None:
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rendered = "".join(_markdown_entry(item) for item in items)
+    with open(path, "a", encoding="utf-8") as markdown_file:
+        try:
+            import fcntl
+        except ImportError:  # pragma: no cover - Windows
+            fcntl = None
+        if fcntl is not None:
+            fcntl.flock(markdown_file, fcntl.LOCK_EX)
+        try:
+            markdown_file.write(rendered)
+        finally:
+            if fcntl is not None:
+                fcntl.flock(markdown_file, fcntl.LOCK_UN)
+
+    logger.info(f"Saved {len(items)} item(s) to Markdown: {path}")
+
+
+def save_to_markdown(item: UnifiedContent, filepath: str = None):
+    """Append one item to the configured Markdown output."""
+    _append_markdown([item], filepath)
+
+
+def save_many_to_markdown(
+    items: Iterable[UnifiedContent], filepath: str = None
+) -> None:
+    """Append a collection with one filesystem write boundary."""
+    _append_markdown(list(items), filepath)
 
 
 def save_content(item: UnifiedContent, json_path: str = None, md_path: str = None):

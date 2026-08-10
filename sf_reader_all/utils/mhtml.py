@@ -12,7 +12,9 @@ can reuse it for any MHTML snapshot.
 
 import base64
 import email
+import os
 import re
+import tempfile
 from pathlib import Path
 
 
@@ -107,5 +109,16 @@ def mhtml_to_selfcontained(mhtml_path, out_path, *, theme="dark",
 
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(html, encoding="utf-8")
+    fd, temporary = tempfile.mkstemp(
+        dir=out.parent,
+        prefix=f".{out.name}.",
+        suffix=".tmp",
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            file.write(html)
+        os.replace(temporary, out)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
     return out.stat().st_size

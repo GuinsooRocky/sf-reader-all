@@ -12,6 +12,8 @@ import re
 from loguru import logger
 from typing import Dict, Any
 
+from sf_reader_all.fetchers.browser_runtime import BrowserRuntime
+
 
 def _proxy_wechat_images(content: str) -> str:
     """Replace WeChat image URLs with a proxy to bypass anti-hotlinking."""
@@ -24,7 +26,9 @@ def _proxy_wechat_images(content: str) -> str:
     )
 
 
-async def fetch_wechat(url: str) -> Dict[str, Any]:
+async def fetch_wechat(
+    url: str, *, runtime: BrowserRuntime | None = None
+) -> Dict[str, Any]:
     """
     Fetch a WeChat public account article with fallback.
 
@@ -37,9 +41,9 @@ async def fetch_wechat(url: str) -> Dict[str, Any]:
     # Tier 1: Jina Reader
     try:
         logger.info(f"[WeChat] Tier 1 — Jina: {url}")
-        from sf_reader_all.fetchers.jina import fetch_via_jina
+        from sf_reader_all.fetchers.jina import fetch_via_jina_async
 
-        data = fetch_via_jina(url)
+        data = await fetch_via_jina_async(url)
         content = data.get("content", "")
         is_captcha = "[去验证]" in content or data.get("title") == "Weixin Official Accounts Platform"
         if content and not is_captcha:
@@ -59,7 +63,7 @@ async def fetch_wechat(url: str) -> Dict[str, Any]:
         logger.info(f"[WeChat] Tier 2 — Playwright stealth (real Chrome, direct): {url}")
         from sf_reader_all.fetchers.browser import fetch_via_browser
 
-        data = await fetch_via_browser(url, stealth=True)
+        data = await fetch_via_browser(url, stealth=True, runtime=runtime)
         return {
             "title": data["title"],
             "content": _proxy_wechat_images(data["content"]),

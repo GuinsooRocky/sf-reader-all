@@ -13,10 +13,13 @@ from loguru import logger
 from typing import Dict, Any
 from pathlib import Path
 
-from sf_reader_all.fetchers.jina import fetch_via_jina
+from sf_reader_all.fetchers.browser_runtime import BrowserRuntime
+from sf_reader_all.fetchers.jina import fetch_via_jina_async
 
 
-async def fetch_xhs(url: str) -> Dict[str, Any]:
+async def fetch_xhs(
+    url: str, *, runtime: BrowserRuntime | None = None
+) -> Dict[str, Any]:
     """
     Fetch a Xiaohongshu note with three-tier fallback.
 
@@ -29,7 +32,7 @@ async def fetch_xhs(url: str) -> Dict[str, Any]:
     # Tier 1: Jina Reader
     try:
         logger.info(f"[XHS] Tier 1 — Jina: {url}")
-        data = fetch_via_jina(url)
+        data = await fetch_via_jina_async(url)
         content = data.get("content", "")
         title = data.get("title", "")
         is_login_wall = (
@@ -76,7 +79,8 @@ async def fetch_xhs(url: str) -> Dict[str, Any]:
         logger.info(f"[XHS] Tier 2 — Playwright with session: {url}")
         from sf_reader_all.fetchers.browser import fetch_via_browser
 
-        data = await fetch_via_browser(url, storage_state=session_path)
+        data = await fetch_via_browser(
+            url, storage_state=session_path, runtime=runtime)
 
         # Session expiry detection: XHS redirects to /explore or login page
         final_url = data.get("url", "")

@@ -11,12 +11,20 @@ Install browser tier: pip install "sf-reader-all[browser]" && playwright install
 Save X session:       sf-reader-all login twitter
 """
 
+import asyncio
 import re
 import requests
 from loguru import logger
+from pathlib import Path
 from typing import Dict, Any
 
-from sf_reader_all.fetchers.jina import fetch_via_jina
+from sf_reader_all.fetchers.browser_runtime import (
+    BrowserMode,
+    BrowserRuntime,
+    use_browser_runtime,
+)
+from sf_reader_all.fetchers.jina import fetch_via_jina_async
+from sf_reader_all.utils.async_runtime import run_blocking
 
 
 FXTWITTER_API = "https://api.fxtwitter.com"
@@ -92,60 +100,76 @@ def _fetch_via_oembed(url: str) -> Dict[str, Any]:
     }
 
 
-async def _fetch_via_playwright(url: str) -> Dict[str, Any]:
+async def _fetch_via_playwright(
+    url: str,
+    *,
+    runtime: BrowserRuntime | None = None,
+    timeout_ms: int = 30_000,
+) -> Dict[str, Any]:
     """
     Fetch tweet via Playwright with X-specific DOM selectors.
     Uses saved login session if available (~/.sf-reader-all/sessions/twitter.json).
     """
-    try:
-        from playwright.async_api import async_playwright
-    except ImportError:
-        raise RuntimeError(
-            "Playwright not installed. Run:\n"
-            '  pip install "sf-reader-all[browser]"\n'
-            "  playwright install chromium"
-        )
-
     from sf_reader_all.fetchers.browser import get_session_path
-    from pathlib import Path
 
     session_path = get_session_path("twitter")
     has_session = Path(session_path).exists()
     if has_session:
         logger.info(f"Using saved X session: {session_path}")
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            channel="chrome",
-            args=["--disable-blink-features=AutomationControlled"],
+    try:
+        return await asyncio.wait_for(
+            _fetch_playwright_with_runtime(
+                url,
+                storage_state=session_path if has_session else None,
+                runtime=runtime,
+                operation_timeout_ms=timeout_ms,
+            ),
+            timeout=timeout_ms / 1000,
         )
+    except asyncio.TimeoutError as exc:
+        raise RuntimeError(
+            f"Twitter browser fetch exceeded {timeout_ms} ms total deadline: {url}"
+        ) from exc
 
-        context_kwargs = {}
-        if has_session:
-            context_kwargs["storage_state"] = session_path
 
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                       "AppleWebKit/537.36 (KHTML, like Gecko) "
-                       "Chrome/120.0.0.0 Safari/537.36",
-            **context_kwargs,
+async def _fetch_playwright_with_runtime(
+    url: str,
+    *,
+    storage_state: str | None,
+    runtime: BrowserRuntime | None,
+    operation_timeout_ms: int,
+) -> Dict[str, Any]:
+    """Include runtime/browser/page acquisition in the fallback deadline."""
+    async with use_browser_runtime(runtime) as active_runtime:
+        async with active_runtime.page(
+            mode=BrowserMode.STEALTH,
+            storage_state=storage_state,
+        ) as page:
+            return await _load_twitter_page(page, url, operation_timeout_ms)
+
+
+async def _load_twitter_page(page, url: str, timeout_ms: int) -> Dict[str, Any]:
+    await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+
+    # X is a SPA. Continue as soon as any useful fallback node has text; a
+    # login wall may never render tweetText, so the condition includes article
+    # and main instead of sleeping for the full selector timeout.
+    try:
+        await page.wait_for_function(
+            """() => {
+                const el = document.querySelector('[data-testid="tweetText"]')
+                    || document.querySelector('article')
+                    || document.querySelector('main');
+                return Boolean(el && el.innerText && el.innerText.trim());
+            }""",
+            timeout=min(10_000, timeout_ms),
         )
-        page = await context.new_page()
+    except Exception:
+        logger.warning("[Twitter] browser DOM did not become ready; extracting current page")
 
-        try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-
-            # Wait for tweet text to render (X is a SPA, needs JS execution)
-            try:
-                await page.wait_for_selector(
-                    '[data-testid="tweetText"]', timeout=10_000
-                )
-            except Exception:
-                pass  # May not appear if login required
-
-            # Extract tweet content with X-specific selectors
-            tweet_text = await page.evaluate("""() => {
+    # Extract tweet content with X-specific selectors
+    tweet_text = await page.evaluate("""() => {
                 // Priority 1: tweet text element
                 const tweetEl = document.querySelector('[data-testid="tweetText"]');
                 if (tweetEl) return tweetEl.innerText;
@@ -161,23 +185,27 @@ async def _fetch_via_playwright(url: str) -> Dict[str, Any]:
                 return '';
             }""")
 
-            title = await page.title()
+    title = await page.title()
 
-            return {
-                "text": (tweet_text or "").strip(),
-                "title": (title or "").strip()[:200],
-            }
-        finally:
-            await context.close()
-            await browser.close()
+    return {
+        "text": (tweet_text or "").strip(),
+        "title": (title or "").strip()[:200],
+    }
 
 
-async def fetch_twitter(url: str) -> Dict[str, Any]:
+async def fetch_twitter(
+    url: str,
+    *,
+    runtime: BrowserRuntime | None = None,
+    browser_timeout_ms: int = 30_000,
+) -> Dict[str, Any]:
     """
     Fetch a tweet or X post with four-tier fallback.
 
     Args:
         url: Tweet URL (x.com or twitter.com)
+        runtime: Entered BrowserRuntime to reuse for the Playwright fallback.
+        browser_timeout_ms: Total deadline for the Playwright fallback tier.
 
     Returns:
         Dict with: text, author, url, title, platform
@@ -189,7 +217,7 @@ async def fetch_twitter(url: str) -> Dict[str, Any]:
     if _is_tweet_url(url):
         try:
             logger.info(f"[Twitter] Tier 1 — FxTwitter: {url}")
-            data = _fetch_via_fxtwitter(url)
+            data = await run_blocking(_fetch_via_fxtwitter, url)
             text = (data.get("text") or "").strip()
             if text:
                 return {
@@ -207,7 +235,7 @@ async def fetch_twitter(url: str) -> Dict[str, Any]:
     if _is_tweet_url(url):
         try:
             logger.info(f"[Twitter] Tier 2 — oEmbed: {url}")
-            data = _fetch_via_oembed(url)
+            data = await run_blocking(_fetch_via_oembed, url)
             text = (data.get("text") or "").strip()
             thin_oembed = (
                 len(text) <= 20
@@ -229,7 +257,7 @@ async def fetch_twitter(url: str) -> Dict[str, Any]:
     # Tier 3: Jina Reader (handles profiles, threads, non-tweet pages)
     try:
         logger.info(f"[Twitter] Tier 3 — Jina: {url}")
-        data = fetch_via_jina(url)
+        data = await fetch_via_jina_async(url)
         content = data.get("content", "")
         title = data.get("title", "")
         jina_ok = (
@@ -253,7 +281,11 @@ async def fetch_twitter(url: str) -> Dict[str, Any]:
     # Tier 4: Playwright + session with X-specific extraction
     try:
         logger.info(f"[Twitter] Tier 4 — Playwright: {url}")
-        data = await _fetch_via_playwright(url)
+        data = await _fetch_via_playwright(
+            url,
+            runtime=runtime,
+            timeout_ms=browser_timeout_ms,
+        )
         content = data.get("text", "")
         if content and len(content.strip()) > 20:
             return {

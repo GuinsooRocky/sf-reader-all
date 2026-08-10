@@ -2,9 +2,12 @@
 """Bilibili video fetcher — uses official web API."""
 
 import re
+from typing import Dict, Any
+
 import requests
 from loguru import logger
-from typing import Dict, Any
+
+from sf_reader_all.utils.async_runtime import run_blocking
 
 
 API_URL = "https://api.bilibili.com/x/web-interface/view"
@@ -13,8 +16,7 @@ HEADERS = {
 }
 
 
-async def fetch_bilibili(url_or_bv: str) -> Dict[str, Any]:
-    """Fetch Bilibili video metadata via official API."""
+def _fetch_bilibili_sync(url_or_bv: str) -> Dict[str, Any]:
     logger.info(f"Fetching Bilibili: {url_or_bv}")
 
     bv_id = url_or_bv
@@ -44,3 +46,8 @@ async def fetch_bilibili(url_or_bv: str) -> Dict[str, Any]:
         "view_count": video.get("stat", {}).get("view", 0),
         "platform": "bilibili",
     }
+
+
+async def fetch_bilibili(url_or_bv: str) -> Dict[str, Any]:
+    """Fetch Bilibili metadata without blocking the event loop."""
+    return await run_blocking(_fetch_bilibili_sync, url_or_bv)

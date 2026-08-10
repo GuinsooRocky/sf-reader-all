@@ -6,6 +6,8 @@ The core dispatcher: give it a URL, get back structured content.
 """
 
 import asyncio
+import os
+from pathlib import Path
 from urllib.parse import urlparse
 from loguru import logger
 from typing import Dict, Any, Optional
@@ -15,79 +17,172 @@ from sf_reader_all.schema import (
     from_bilibili, from_twitter, from_wechat,
     from_xiaohongshu, from_youtube, from_rss, from_telegram,
 )
-from sf_reader_all.fetchers.jina import fetch_via_jina
+from sf_reader_all.fetchers.jina import fetch_via_jina_async
+from sf_reader_all.fetchers.browser_runtime import BrowserRuntime
+from sf_reader_all.utils.async_runtime import run_blocking
 from sf_reader_all.utils.url_validator import validate_url
+
+
+ACTIVE_READ_CONCURRENCY = 16
 
 
 class UniversalReader:
     """
-    Routes URLs to platform-specific fetchers.
+    Routes URLs to platform-specific fetchers and local files to parsers.
     Falls back to Jina Reader for unknown platforms.
     """
 
     def __init__(self, inbox: Optional[UnifiedInbox] = None):
         self.inbox = inbox
+        self._persist_lock = asyncio.Lock()
 
     def _detect_platform(self, url: str) -> str:
         """Detect platform from URL."""
-        domain = urlparse(url).netloc.lower()
+        hostname = (urlparse(url).hostname or "").lower().rstrip(".")
 
-        if "mp.weixin.qq.com" in domain:
+        def is_domain(domain: str) -> bool:
+            return hostname == domain or hostname.endswith(f".{domain}")
+
+        if is_domain("mp.weixin.qq.com"):
             return "wechat"
-        if "x.com" in domain or "twitter.com" in domain:
+        if is_domain("x.com") or is_domain("twitter.com"):
             return "twitter"
-        if "youtube.com" in domain or "youtu.be" in domain:
+        if is_domain("youtube.com") or is_domain("youtu.be"):
             return "youtube"
-        if "xiaohongshu.com" in domain or "xhslink.com" in domain:
+        if is_domain("xiaohongshu.com") or is_domain("xhslink.com"):
             return "xhs"
-        if "bilibili.com" in domain or "b23.tv" in domain:
+        if is_domain("bilibili.com") or is_domain("b23.tv"):
             return "bilibili"
-        if "xiaoyuzhoufm.com" in domain:
+        if is_domain("xiaoyuzhoufm.com"):
             return "podcast"
-        if "podcasts.apple.com" in domain:
+        if is_domain("podcasts.apple.com"):
             return "podcast"
-        if "t.me" in domain or "telegram.org" in domain:
+        if is_domain("t.me") or is_domain("telegram.org"):
             return "telegram"
         if url.endswith(".xml") or "/rss" in url or "/feed" in url or "/atom" in url:
             return "rss"
         return "generic"
 
-    async def read(self, url: str) -> UnifiedContent:
-        """
-        Fetch content from any URL and return as UnifiedContent.
+    def _persist_many(self, contents: list[UnifiedContent]) -> None:
+        """Persist a completed read operation through one storage boundary."""
+        if not contents:
+            return
 
-        The main entry point — give it a URL, get back structured content.
-        """
+        if self.inbox:
+            changed = self.inbox.add_batch(contents)
+            if changed or self.inbox.is_dirty:
+                self.inbox.save()
+                logger.info(f"Saved {changed} item(s) to inbox")
+
+        from sf_reader_all.utils.storage import save_many_to_markdown
+        save_many_to_markdown(contents)
+
+    def _persist(self, content: UnifiedContent) -> None:
+        """Preserve the single-item persistence behavior."""
+        self._persist_many([content])
+
+    async def _persist_many_async(self, contents: list[UnifiedContent]) -> None:
+        """Persist off-loop while serializing access to this reader's inbox."""
+        if not contents:
+            return
+        async with self._persist_lock:
+            worker = asyncio.create_task(run_blocking(self._persist_many, contents))
+            try:
+                await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                # The thread cannot be stopped safely. Keep the lock until its
+                # write finishes, then preserve cancellation for the caller.
+                try:
+                    await worker
+                except Exception as error:
+                    logger.error(f"Persistence failed during cancellation: {error}")
+                raise
+
+    async def _read_file(
+        self, path: str | os.PathLike[str], *, persist: bool
+    ) -> UnifiedContent:
+        from sf_reader_all.parsers.document import read_document
+
+        try:
+            content = await run_blocking(read_document, path)
+            if persist:
+                await self._persist_many_async([content])
+            return content
+        except Exception as e:
+            logger.error(f"[document] Failed: {e}")
+            raise
+
+    async def read_file(self, path: str | os.PathLike[str]) -> UnifiedContent:
+        """Convert a local document and return it as UnifiedContent."""
+        return await self._read_file(path, persist=True)
+
+    async def _read_source(
+        self,
+        source: str | os.PathLike[str],
+        *,
+        persist: bool,
+        browser_runtime: BrowserRuntime | None = None,
+    ) -> UnifiedContent:
+        source_text = os.fspath(source)
+        is_remote = source_text.startswith(("http://", "https://"))
+        if isinstance(source, os.PathLike) or not is_remote:
+            candidate = Path(source_text).expanduser()
+            if candidate.is_file() or isinstance(source, os.PathLike):
+                return await self._read_file(candidate, persist=persist)
+        return await self._read_url(
+            source_text,
+            persist=persist,
+            browser_runtime=browser_runtime,
+        )
+
+    async def read_source(self, source: str | os.PathLike[str]) -> UnifiedContent:
+        """Read either an existing local document or a URL."""
+        return await self._read_source(source, persist=True)
+
+    async def _read_url(
+        self,
+        url: str,
+        *,
+        persist: bool,
+        browser_runtime: BrowserRuntime | None = None,
+    ) -> UnifiedContent:
         # Ensure URL has scheme
         if not url.startswith(("http://", "https://")):
             url = f"https://{url}"
 
         # SSRF protection: block private IPs, metadata endpoints, DNS rebinding
-        validate_url(url)
+        await run_blocking(validate_url, url)
 
         platform = self._detect_platform(url)
         logger.info(f"[{platform}] {url[:60]}...")
 
         try:
-            content = await self._fetch(platform, url)
+            content = await self._fetch(
+                platform, url, browser_runtime=browser_runtime)
 
-            # Save to inbox if configured
-            if self.inbox:
-                if self.inbox.add(content):
-                    self.inbox.save()
-                    logger.info(f"Saved to inbox: {content.title[:50]}")
-
-            # Save to markdown output if configured
-            from sf_reader_all.utils.storage import save_to_markdown
-            save_to_markdown(content)
-
+            if persist:
+                await self._persist_many_async([content])
             return content
 
         except Exception as e:
             logger.error(f"[{platform}] Failed: {e}")
             raise
 
-    async def _fetch(self, platform: str, url: str) -> UnifiedContent:
+    async def read(self, url: str) -> UnifiedContent:
+        """
+        Fetch content from a URL and return as UnifiedContent.
+
+        The URL-only entry point used by the MCP server.
+        """
+        return await self._read_url(url, persist=True)
+
+    async def _fetch(
+        self,
+        platform: str,
+        url: str,
+        *,
+        browser_runtime: BrowserRuntime | None = None,
+    ) -> UnifiedContent:
         """Dispatch to platform-specific fetcher."""
 
         if platform == "bilibili":
@@ -97,17 +192,17 @@ class UniversalReader:
 
         if platform == "twitter":
             from sf_reader_all.fetchers.twitter import fetch_twitter
-            data = await fetch_twitter(url)
+            data = await fetch_twitter(url, runtime=browser_runtime)
             return from_twitter(data)
 
         if platform == "wechat":
             from sf_reader_all.fetchers.wechat import fetch_wechat
-            data = await fetch_wechat(url)
+            data = await fetch_wechat(url, runtime=browser_runtime)
             return from_wechat(data)
 
         if platform == "xhs":
             from sf_reader_all.fetchers.xhs import fetch_xhs
-            data = await fetch_xhs(url)
+            data = await fetch_xhs(url, runtime=browser_runtime)
             return from_xiaohongshu(data)
 
         if platform == "youtube":
@@ -134,7 +229,7 @@ class UniversalReader:
 
         # Fallback: Jina Reader for any unknown URL
         logger.info(f"Using Jina fallback for: {url}")
-        data = fetch_via_jina(url)
+        data = await fetch_via_jina_async(url)
         return UnifiedContent(
             source_type=SourceType.MANUAL,
             source_name=urlparse(url).netloc,
@@ -143,16 +238,43 @@ class UniversalReader:
             url=url,
         )
 
-    async def read_batch(self, urls: list[str]) -> list[UnifiedContent]:
-        """Fetch multiple URLs concurrently."""
-        tasks = [self.read(url) for url in urls]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+    async def _read_many(self, sources, read_one) -> list[UnifiedContent]:
+        """Run reads concurrently, then persist their successes as one batch."""
+        read_slots = asyncio.Semaphore(ACTIVE_READ_CONCURRENCY)
+
+        async def limited_read(source, browser_runtime):
+            async with read_slots:
+                return await read_one(
+                    source,
+                    persist=False,
+                    browser_runtime=browser_runtime,
+                )
+
+        async with BrowserRuntime() as browser_runtime:
+            tasks = [
+                limited_read(source, browser_runtime)
+                for source in sources
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
         contents = []
-        for url, result in zip(urls, results):
+        for source, result in zip(sources, results):
+            if isinstance(result, asyncio.CancelledError):
+                raise result
             if isinstance(result, Exception):
-                logger.error(f"Batch failed for {url}: {result}")
+                logger.error(f"Batch failed for {source}: {result}")
+            elif isinstance(result, BaseException):
+                raise result
             else:
                 contents.append(result)
 
+        await self._persist_many_async(contents)
         return contents
+
+    async def read_batch(self, urls: list[str]) -> list[UnifiedContent]:
+        """Fetch multiple URLs concurrently."""
+        return await self._read_many(urls, self._read_url)
+
+    async def read_sources(self, sources: list[str]) -> list[UnifiedContent]:
+        """Read multiple URLs or local documents concurrently."""
+        return await self._read_many(sources, self._read_source)

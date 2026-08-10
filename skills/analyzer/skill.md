@@ -20,7 +20,8 @@ When user sends content (URL, text, or transcript) with analysis intent:
 |-------|------|
 | 任何 URL（微信/小红书/X/YouTube/B 站/RSS/通用网页） | `sf-reader-all <url>` |
 | sf-reader-all 不支持的格式 / 抓取失败 | `WebFetch` 或 Jina Reader 兜底 |
-| Local file | Read file directly |
+| Local office document (Word/PPT/Excel/PDF/EPUB/CSV) | `sf-reader-all <path>`（需安装 `.[documents]`） |
+| Other local file | Read file directly |
 | Transcript from video skill | Use directly |
 
 **执行方式**：

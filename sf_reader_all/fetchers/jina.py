@@ -16,6 +16,8 @@ import os
 import requests
 from loguru import logger
 
+from sf_reader_all.utils.async_runtime import run_blocking
+
 
 JINA_BASE = "https://r.jina.ai"
 TIMEOUT = 30
@@ -73,3 +75,12 @@ def fetch_via_jina(url: str) -> dict:
     except requests.RequestException as e:
         logger.error(f"Jina fetch failed: {url} — {e}")
         raise
+
+
+async def fetch_via_jina_async(url: str) -> dict:
+    """Async wrapper around :func:`fetch_via_jina`.
+
+    The synchronous function remains the public compatibility interface for
+    callers that are not running an event loop.
+    """
+    return await run_blocking(fetch_via_jina, url)

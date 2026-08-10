@@ -5,17 +5,18 @@
 
 [English](./README.md)
 
-通用内容阅读器：给定 URL（文章、视频、播客、推文），返回结构化内容。可作为 **CLI**、**Python 库**、**MCP 服务** 或 **Claude Code Skills** 使用。
+通用内容阅读器：给定 URL（文章、视频、播客、推文）或本地办公文档，返回结构化内容。可作为 **CLI**、**Python 库**、**MCP 服务** 或 **Claude Code Skills** 使用。
 
 ## 能力概览
 
 ```
-任意 URL → 平台识别 → 抓取内容 → 统一输出
-                ↓              ↓
-           自动识别        文本：Jina Reader
-          7+ 平台         视频：yt-dlp 字幕
-                          音频：Whisper 转写
-                          API：Bilibili / RSS / Telegram
+URL / 本地文档 → 来源识别 → 读取内容 → 统一输出
+                       ↓              ↓
+                  自动识别        文本：Jina Reader
+                 7+ 平台         文档：anydoc（可选）
+                                 视频：yt-dlp 字幕
+                                 音频：Whisper 转写
+                                 API：Bilibili / RSS / Telegram
 ```
 
 Python 层负责文本抓取与 YouTube 字幕；可选的 **Claude Code skills** 为视频/播客提供完整 Whisper 转写与 AI 分析。
@@ -28,11 +29,14 @@ Python 层负责文本抓取与 YouTube 字幕；可选的 **Claude Code skills*
 | **Claude Code Skills** | 视频转写 + 内容分析 | 可选，复制 `skills/` |
 | **MCP Server** | 将阅读能力暴露为 MCP 工具 | 可选，`python mcp_server.py` |
 
+批量读取最多同时处理 16 个来源；阻塞式网络库和外部命令共用 8 路工作线程，浏览器 fallback 共用一个最多 6 页的 Browser Runtime。成功项汇总后，每批只保存一次 inbox、追加一次 Markdown。
+
 ### CLI 示例
 
 ```bash
 sf-reader-all https://mp.weixin.qq.com/s/abc123
 sf-reader-all https://x.com/elonmusk/status/123456
+sf-reader-all ./report.docx
 sf-reader-all login xhs
 sf-reader-all list
 ```
@@ -70,6 +74,7 @@ python mcp_server.py
 | 小红书 | ✅（需登录） | — |
 | Telegram | ✅ Telethon | — |
 | RSS | ✅ | — |
+| 本地文档（Word、PPT、Excel、PDF 等） | ✅（可选） | — |
 
 > YouTube Whisper 需 `GROQ_API_KEY`（[Groq](https://console.groq.com/keys) 免费申请）。
 
@@ -80,6 +85,7 @@ pip install git+https://github.com/GuinsooRocky/sf-reader-all.git
 pip install "sf-reader-all[telegram] @ git+https://github.com/GuinsooRocky/sf-reader-all.git"
 pip install "sf-reader-all[browser] @ git+https://github.com/GuinsooRocky/sf-reader-all.git"
 playwright install chromium
+pip install "sf-reader-all[documents] @ git+https://github.com/GuinsooRocky/sf-reader-all.git"
 pip install "sf-reader-all[all] @ git+https://github.com/GuinsooRocky/sf-reader-all.git"
 ```
 
@@ -100,6 +106,12 @@ async def main():
 asyncio.run(main())
 ```
 
+安装 `documents` 可选依赖后，Python 库可通过 `read_file` 读取本地文档：
+
+```python
+content = await reader.read_file("./report.docx")
+```
+
 ## 配置
 
 复制 `.env.example` → `.env`。主要变量：`TG_API_ID` / `TG_API_HASH`（Telegram）、`GROQ_API_KEY`（Whisper）、`INBOX_FILE`、`OUTPUT_DIR`、`OBSIDIAN_VAULT`。详见英文 README 表格。
@@ -107,6 +119,8 @@ asyncio.run(main())
 ## 仓库结构
 
 `sf_reader_all/`（CLI、`UniversalReader`、各平台 fetcher）、`skills/`、`mcp_server.py`、`pyproject.toml`。各层如何协同的流程图见英文 README。
+
+网页归档的 `manifest.json` 会记录导航、内容稳定等待、快照、MHTML 转换和总耗时；这些数据用于判断 MHTML 转换是否真的值得进一步迁移到 Rust。
 
 ## License
 

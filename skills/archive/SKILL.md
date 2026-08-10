@@ -58,10 +58,13 @@ https://site.com/b/ | 自定义标题   ← URL 后跟 ` | 标题` 可覆盖（�
 sf-reader-all archive urls.txt [--out DIR] [--theme dark|light] [--concurrency N]
 ```
 
-逐篇 MHTML 快照 → 转自包含 HTML → 写 `index.html` + `manifest.json`。
+逐篇 MHTML 快照 → 在线程池转自包含 HTML → 写 `index.html` + `manifest.json`。
 - 默认输出 `<urls文件名>-archive/`，默认暗黑主题。
 - **增量**：已转好的 `NNN-*.html` 自动跳过 —— 失败后重跑只补缺的。
+- 单页抓取加转换默认总时限 120 秒；超时只标记该页失败，不中断同批其他页面。
 - 看 `manifest.json` 的 `status` 字段确认成功/失败。
+- `manifest.json` 同时记录导航、内容稳定、快照、转换排队、转换和总耗时，
+  以及输入输出字节数；失败项还会记录失败阶段和是否超时。
 
 ## 登录态（付费 / 登录墙内容）
 
@@ -99,7 +102,13 @@ booklet-archive/
 
 ```json
 { "index": 1, "section": "第一章", "url": "https://site.com/a/",
-  "title": "第一篇标题", "file": "001-第一篇标题.html", "status": "ok" }
+  "title": "第一篇标题", "file": "001-第一篇标题.html", "status": "ok",
+  "timed_out": false, "failure_stage": null, "timeout_stage": null,
+  "item_timeout_ms": 120000,
+  "network_idle_timed_out": false, "stable_content_timed_out": false,
+  "navigation_ms": 820.4, "settle_ms": 601.2, "snapshot_ms": 83.7,
+  "convert_queue_ms": 0.1, "convert_ms": 42.5, "total_ms": 1549.8,
+  "mhtml_bytes": 2100000, "html_bytes": 2800000 }
 ```
 
 ## 反模式 / 已知坑
