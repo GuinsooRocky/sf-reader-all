@@ -55,21 +55,23 @@ sf-reader-all list
 
 > Requires cloning the repo (not included in pip install).
 
-For video/podcast transcription and content analysis:
+For video/podcast transcription, content analysis, and optional data charts:
 
 ```
 skills/
-├── video/       # YouTube/Bilibili/podcast → full transcript via Whisper
-└── analyzer/    # Any content → structured analysis report
+├── video/          # YouTube/Bilibili/podcast → full transcript via Whisper
+├── analyzer/       # Any content → structured analysis report
+└── chart-content/  # Verified content data → Flint SVG/PNG chart
 ```
 
 Install:
 ```bash
 cp -r skills/video ~/.claude/skills/video
 cp -r skills/analyzer ~/.claude/skills/analyzer
+cp -r skills/chart-content ~/.claude/skills/chart-content
 ```
 
-Then in Claude Code, just send a YouTube/Bilibili/podcast link — the video skill auto-triggers and produces a full transcript + summary.
+Then in Claude Code, just send a YouTube/Bilibili/podcast link — the video skill auto-triggers and produces a full transcript + summary. When an analysis contains enough reliable, comparable data, `chart-content` can generate a sourced Flint chart without changing the Python reader's default dependencies. Chart rendering requires Node.js 18+ and downloads the pinned `flint-chart-mcp` package through `npx` on first use.
 
 ### Layer 3: MCP Server
 

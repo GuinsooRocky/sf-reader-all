@@ -67,6 +67,11 @@ Scan content across these dimensions. Only output dimensions with actual content
 - **Trends**: [Patterns in the data]
 - **Gaps**: [What data is missing]
 
+### 📈 Data Visualization
+- **Chart candidate**: [What comparison/trend/distribution becomes clearer as a chart]
+- **Data status**: [Verified primary source / user-provided / original article claim]
+- **Artifact**: [Generated SVG/PNG path, only when a chart was actually created]
+
 ### ⚠️ Risks & Warnings
 - **Pitfalls**: [Explicitly mentioned risks]
 - **Blind spots**: [What the author might be missing]
@@ -97,6 +102,20 @@ Scan content across these dimensions. Only output dimensions with actual content
 ### Exploration (needs validation)
 - [ ] [Action 5] — Impact: ★★★ | Effort: Hard | Nature: Exploratory
 ```
+
+### Step 2.5: Route Reliable Data to `chart-content`
+
+After scanning data and numbers, use the sibling `chart-content` skill only when
+the content has at least three comparable data points or a valid time series,
+consistent units, traceable sources, and a chart would add information. Resolve
+the sibling skill relative to this file and follow its data gate, provenance,
+validation, and rendering workflow completely.
+
+Do not chart identifiers, version numbers, vague marketing claims, mixed units,
+or values that require guessing. Re-check volatile values such as prices,
+rankings, stars, and engagement metrics against a current first-party source.
+If the chart step fails, preserve the prepared data/spec and continue the text
+analysis; never report a chart-rendering failure as a content-fetch failure.
 
 ### Step 3: Personalized Relevance (Customizable)
 

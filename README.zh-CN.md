@@ -41,9 +41,12 @@ sf-reader-all list
 
 ```
 skills/
-├── video/       # YouTube/Bilibili/播客 → Whisper 全文转写
-└── analyzer/    # 任意内容 → 结构化分析报告
+├── video/          # YouTube/Bilibili/播客 → Whisper 全文转写
+├── analyzer/       # 任意内容 → 结构化分析报告
+└── chart-content/  # 可靠的内容数据 → Flint SVG/PNG 图表
 ```
+
+`chart-content` 是可选后处理能力：只有数据可比较、单位一致且来源可追溯时才画图，不改变 Python 抓取器的默认依赖。静态图渲染需要 Node.js 18+，首次使用会通过 `npx` 下载固定版本的 `flint-chart-mcp`。
 
 ### MCP
 

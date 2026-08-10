@@ -1,0 +1,4 @@
+interface:
+  display_name: "内容数据图表"
+  short_description: "把抓取内容中的可靠数据整理、校验并生成可复用的 Flint 图表"
+  default_prompt: "使用 $chart-content 从这份 read-all 内容中提取可靠数据并生成图表。"
