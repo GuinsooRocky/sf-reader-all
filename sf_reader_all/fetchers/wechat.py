@@ -3,7 +3,9 @@
 WeChat article fetcher — two-tier fallback:
 
 1. Jina Reader (fast, no deps)
-2. Playwright headless (no login needed for public articles)
+2. Playwright stealth (real Chrome + anti-automation + direct/no-proxy).
+   Public articles need no login, but bundled headless Chromium or a proxied
+   request trips WeChat's CAPTCHA — stealth=True is required (verified headless).
 """
 
 import re
@@ -54,10 +56,10 @@ async def fetch_wechat(url: str) -> Dict[str, Any]:
 
     # Tier 2: Playwright headless (no session needed)
     try:
-        logger.info(f"[WeChat] Tier 2 — Playwright headless: {url}")
+        logger.info(f"[WeChat] Tier 2 — Playwright stealth (real Chrome, direct): {url}")
         from sf_reader_all.fetchers.browser import fetch_via_browser
 
-        data = await fetch_via_browser(url)
+        data = await fetch_via_browser(url, stealth=True)
         return {
             "title": data["title"],
             "content": _proxy_wechat_images(data["content"]),

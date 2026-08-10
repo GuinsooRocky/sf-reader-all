@@ -16,7 +16,7 @@ SESSION_DIR = Path.home() / ".sf-reader-all" / "sessions"
 TIMEOUT_MS = 30_000
 
 
-async def fetch_via_browser(url: str, storage_state: str = None) -> dict:
+async def fetch_via_browser(url: str, storage_state: str = None, stealth: bool = False) -> dict:
     """
     Fetch a URL using headless Chromium via Playwright.
 
@@ -24,6 +24,9 @@ async def fetch_via_browser(url: str, storage_state: str = None) -> dict:
         url: Target URL to fetch.
         storage_state: Path to a Playwright storage state JSON file (cookies/localStorage).
                        If provided, the browser context will load this session.
+        stealth: If True, launch real Chrome + anti-automation flag + direct
+                 connection (no proxy). Required for hardened anti-scrape sites
+                 like WeChat — bundled Chromium or a proxied request trips CAPTCHA.
 
     Returns:
         dict with keys: title, content, url, author
@@ -44,7 +47,24 @@ async def fetch_via_browser(url: str, storage_state: str = None) -> dict:
     logger.info(f"Browser fetch: {url}")
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        if stealth:
+            # Hardened anti-scrape (WeChat): real Chrome + AutomationControlled off
+            # + direct connection. Bundled Chromium gets detected; a proxy (Clash)
+            # trips WeChat's CAPTCHA — both must be avoided. Verified headless-OK.
+            stealth_kwargs = {
+                "headless": True,
+                "args": [
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-proxy-server",
+                ],
+            }
+            try:
+                browser = await p.chromium.launch(channel="chrome", **stealth_kwargs)
+            except Exception:
+                logger.warning("[browser] real Chrome unavailable, using bundled chromium (may be detected)")
+                browser = await p.chromium.launch(**stealth_kwargs)
+        else:
+            browser = await p.chromium.launch(headless=True)
 
         context_kwargs = {}
         if storage_state and Path(storage_state).exists():

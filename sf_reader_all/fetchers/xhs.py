@@ -36,7 +36,15 @@ async def fetch_xhs(url: str) -> Dict[str, Any]:
             "小红书 - 你的生活兴趣社区" in title
             or "登录后推荐更懂你的笔记" in content
         )
-        if content and not is_login_wall:
+        # Jina sometimes "succeeds" but returns the full page — nav links plus
+        # footer chrome (备案号 / company info / login prompts) — instead of the
+        # clean note desc. These markers never appear in a real note body, so
+        # treat their presence as dirty and fall through to the browser tier,
+        # which extracts #detail-desc directly.
+        _CHROME_MARKERS = ("行吟信息科技", "沪ICP备", "登录后评论",
+                           "您的浏览器似乎开启了广告屏蔽插件")
+        is_page_chrome = any(m in content for m in _CHROME_MARKERS)
+        if content and not is_login_wall and not is_page_chrome:
             return {
                 "title": title,
                 "content": content,
@@ -44,7 +52,8 @@ async def fetch_xhs(url: str) -> Dict[str, Any]:
                 "url": url,
                 "platform": "xhs",
             }
-        logger.warning("[XHS] Jina returned login-wall stub, falling back to browser")
+        reason = "page-chrome" if is_page_chrome else "login-wall stub"
+        logger.warning(f"[XHS] Jina returned {reason}, falling back to browser")
     except Exception as e:
         logger.warning(f"[XHS] Jina failed ({e}), falling back to browser")
 
