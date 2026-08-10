@@ -22,6 +22,7 @@ PLATFORM_URLS = {
     "wechat": "https://mp.weixin.qq.com",
     "twitter": "https://x.com/login",
     "x": "https://x.com/login",
+    "usehook": "https://usehook.cn/columns",
 }
 
 
