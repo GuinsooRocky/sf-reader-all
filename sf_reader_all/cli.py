@@ -14,6 +14,7 @@ Usage:
 import sys
 import asyncio
 import json
+import shlex
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -135,6 +136,40 @@ def cmd_archive_links(args: list[str]):
         print(f"\n📦 {len(links)} same-origin links", file=sys.stderr)
 
 
+def cmd_xhs_profile(args: list[str]):
+    """Harvest every note link from an XHS user profile (headless by default)."""
+    urls = [a for a in args if a.startswith(("http://", "https://"))]
+    if not urls:
+        print("❌ Usage: sf-reader-all xhs-profile <profile-url> "
+              "[--headed] [--out FILE] [--session NAME]")
+        sys.exit(1)
+
+    from sf_reader_all.fetchers.xhs_profile import harvest_profile
+
+    try:
+        notes = asyncio.run(harvest_profile(
+            urls[0],
+            headless="--headed" not in args,
+            session=_opt(args, "--session"),
+        ))
+    except Exception as e:
+        print(f"❌ {e}")
+        sys.exit(1)
+
+    lines = [f"{n['href']} | {n['text']}" for n in notes]
+    out_file = _opt(args, "--out")
+    if out_file:
+        Path(out_file).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        print(f"✅ {len(notes)} note links → {out_file}")
+        quoted = shlex.quote(out_file)
+        print("   Next (serial): "
+              f"cut -d' ' -f1 {quoted} | while IFS= read -r url; "
+              'do sf-reader-all "$url"; done')
+    else:
+        print("\n".join(lines))
+        print(f"\n📦 {len(notes)} note links", file=sys.stderr)
+
+
 def cmd_archive(args: list[str]):
     """Snapshot a curated URL list into self-contained HTML."""
     login_url = _opt(args, "--login")
@@ -185,6 +220,7 @@ Usage:
     sf-reader-all <url1> <url2>      Fetch multiple URLs
     sf-reader-all login <platform>   Login to a platform (saves session for browser fallback)
     sf-reader-all archive-links <url>   Harvest same-origin links from a page
+    sf-reader-all xhs-profile <url>     Harvest all note links from an XHS profile
     sf-reader-all archive <urls-file>   Snapshot a curated URL list into self-contained HTML
     sf-reader-all list               Show inbox contents
     sf-reader-all clear              Clear inbox
@@ -212,6 +248,8 @@ Examples:
         cmd_login(sys.argv[2], headless=headless)
     elif cmd == "archive-links":
         cmd_archive_links(sys.argv[2:])
+    elif cmd == "xhs-profile":
+        cmd_xhs_profile(sys.argv[2:])
     elif cmd == "archive":
         cmd_archive(sys.argv[2:])
     elif cmd == "list":
