@@ -246,8 +246,15 @@ def from_manual(title: str, content: str, url: str = "") -> UnifiedContent:
 # Unified Inbox
 # =============================================================================
 
+INBOX_MAX_ITEMS = 500
+INBOX_RETENTION_DAYS = 90
+
+
 class UnifiedInbox:
-    """JSON-based content inbox with dedup."""
+    """JSON-based content inbox with dedup.
+
+    Every save() also drops items fetched more than INBOX_RETENTION_DAYS ago
+    and keeps at most INBOX_MAX_ITEMS, so the file never grows unbounded."""
 
     def __init__(self, filepath: str = "unified_inbox.json"):
         self.filepath = filepath
@@ -325,7 +332,13 @@ class UnifiedInbox:
                 if item_id not in merged:
                     order.append(item_id)
                 merged[item_id] = candidate
-            final = [merged[i] for i in order][-500:]
+            cutoff = _fetched_at_timestamp(
+                (datetime.now() - timedelta(days=INBOX_RETENTION_DAYS)).isoformat()
+            )
+            final = [
+                merged[i] for i in order
+                if _fetched_at_timestamp(merged[i].fetched_at) >= cutoff
+            ][-INBOX_MAX_ITEMS:]
 
             dir_ = os.path.dirname(os.path.abspath(self.filepath)) or "."
             fd, tmp = tempfile.mkstemp(dir=dir_, suffix=".tmp")

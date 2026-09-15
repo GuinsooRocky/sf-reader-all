@@ -11,15 +11,19 @@ Run: <venv>/bin/python test_inbox_concurrency.py
 
 import asyncio
 import builtins
+import json
 import tempfile
 import concurrent.futures as cf
 import os
 import threading
 import time
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from sf_reader_all.reader import UniversalReader
-from sf_reader_all.schema import UnifiedInbox, UnifiedContent, SourceType
+from sf_reader_all.schema import (
+    INBOX_RETENTION_DAYS, UnifiedInbox, UnifiedContent, SourceType,
+)
 from sf_reader_all.utils.storage import save_many_to_markdown
 
 
@@ -31,6 +35,11 @@ def _item(n, content=None):
         content=content if content is not None else f"c{n}",
         url=f"https://mp.weixin.qq.com/s/SLUG{n}",
     )
+
+
+def _ago(**delta):
+    """fetched_at relative to now, so fixtures never age past retention."""
+    return (datetime.now() - timedelta(**delta)).isoformat()
 
 
 def test_no_lost_update_under_concurrency():
@@ -114,7 +123,7 @@ def test_older_fetch_cannot_overwrite_newer_same_url():
     fp = os.path.join(d, "inbox.json")
 
     seed_item = _item(1, "seed")
-    seed_item.fetched_at = "2026-08-11T00:00:00"
+    seed_item.fetched_at = _ago(hours=3)
     seed = UnifiedInbox(fp)
     seed.add(seed_item)
     seed.save()
@@ -122,9 +131,9 @@ def test_older_fetch_cannot_overwrite_newer_same_url():
     older_writer = UnifiedInbox(fp)
     newer_writer = UnifiedInbox(fp)
     older = _item(1, "older fetch")
-    older.fetched_at = "2026-08-11T01:00:00"
+    older.fetched_at = _ago(hours=2)
     newer = _item(1, "newer fetch")
-    newer.fetched_at = "2026-08-11T02:00:00"
+    newer.fetched_at = _ago(hours=1)
 
     older_writer.add(older)
     newer_writer.add(newer)
@@ -133,7 +142,7 @@ def test_older_fetch_cannot_overwrite_newer_same_url():
 
     final = UnifiedInbox(fp).items[0]
     assert final.content == "newer fetch"
-    assert final.fetched_at == "2026-08-11T02:00:00"
+    assert final.fetched_at == newer.fetched_at
 
 
 def test_failed_save_remains_dirty_and_retries_identical_content():
@@ -228,7 +237,7 @@ def test_clear_old_deletion_survives_merge():
     fp = os.path.join(d, "inbox.json")
     inb = UnifiedInbox(fp)
     old = _item(1)
-    old.fetched_at = "2000-01-01T00:00:00"
+    old.fetched_at = _ago(days=30)  # past clear_old's 7 days, within retention
     inb.add(old)
     inb.add(_item(2))
     inb.save()
@@ -240,6 +249,29 @@ def test_clear_old_deletion_survives_merge():
     urls = {item.url for item in UnifiedInbox(fp).items}
     assert "https://mp.weixin.qq.com/s/SLUG1" not in urls
     assert "https://mp.weixin.qq.com/s/SLUG2" in urls
+
+
+def test_save_purges_items_past_retention():
+    """A new fetch's save drops anything on disk older than INBOX_RETENTION_DAYS."""
+    d = tempfile.mkdtemp()
+    fp = os.path.join(d, "inbox.json")
+    stale = _item(1)
+    stale.fetched_at = _ago(days=INBOX_RETENTION_DAYS + 1)
+    kept = _item(2)
+    kept.fetched_at = _ago(days=INBOX_RETENTION_DAYS - 1)
+    with open(fp, "w", encoding="utf-8") as f:  # bypass save(): seed old rows
+        json.dump([stale.to_dict(), kept.to_dict()], f)
+
+    session = UnifiedInbox(fp)
+    assert len(session.items) == 2  # load() keeps them; only save() purges
+    session.add(_item(3))
+    session.save()
+
+    urls = [item.url for item in UnifiedInbox(fp).items]
+    assert urls == [
+        "https://mp.weixin.qq.com/s/SLUG2",
+        "https://mp.weixin.qq.com/s/SLUG3",
+    ], urls
 
 
 def test_batches_persist_successes_with_one_save():
@@ -350,6 +382,8 @@ if __name__ == "__main__":
     print("PASS: reader persistence is off-loop and serialized")
     test_clear_old_deletion_survives_merge()
     print("PASS: clear_old deletion survives disk merge")
+    test_save_purges_items_past_retention()
+    print("PASS: save purges items past retention")
     test_batches_persist_successes_with_one_save()
     print("PASS: URL and mixed-source batches persist with one save each")
     test_markdown_batch_opens_the_destination_once()
