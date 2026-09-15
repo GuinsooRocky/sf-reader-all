@@ -26,12 +26,14 @@ Issues = "https://github.com/runesleo/sf-reader-all/issues"
 telegram = ["telethon>=1.34"]
 mcp = ["mcp[cli]>=1.0"]
 browser = ["playwright>=1.40"]
+xhs = ["xhshow>=0.2"]
 documents = ["firecrawl-anydoc>=0.1.7,<0.2"]
 all = [
     "telethon>=1.34",
     "mcp[cli]>=1.0",
     "playwright>=1.40",
     "firecrawl-anydoc>=0.1.7,<0.2",
+    "xhshow>=0.2",
 ]
 
 [project.scripts]

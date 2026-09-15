@@ -7,6 +7,7 @@ Usage:
     sf-reader-all <source1> <source2> ...   # Read multiple sources
     sf-reader-all archive-links <url>       # Harvest same-origin links from a page
     sf-reader-all archive <urls-file>       # Snapshot a URL list into self-contained HTML
+    sf-reader-all xhs-search <keyword>      # Search XHS notes by keyword
     sf-reader-all list                      # Show inbox contents
     sf-reader-all clear                     # Clear inbox
 """
@@ -171,6 +172,45 @@ def cmd_xhs_profile(args: list[str]):
         print(f"\n📦 {len(notes)} note links", file=sys.stderr)
 
 
+def cmd_xhs_search(args: list[str]):
+    """Search XHS notes by keyword via the signed web API."""
+    value_flags = {"--limit", "--sort", "--type", "--out", "--session"}
+    words = [a for i, a in enumerate(args)
+             if not a.startswith("--") and (i == 0 or args[i - 1] not in value_flags)]
+    if not words:
+        print("❌ Usage: sf-reader-all xhs-search <keyword> [--limit N] "
+              "[--sort general|hot|latest] [--type all|video|image] "
+              "[--out FILE] [--session NAME]")
+        sys.exit(1)
+
+    from sf_reader_all.fetchers.xhs_search import search_notes
+
+    try:
+        notes = search_notes(
+            " ".join(words),
+            limit=int(_opt(args, "--limit", "20")),
+            sort=_opt(args, "--sort", "general"),
+            note_type=_opt(args, "--type", "all"),
+            session=_opt(args, "--session"),
+        )
+    except Exception as e:
+        print(f"❌ {e}" if not str(e).startswith("❌") else str(e))
+        sys.exit(1)
+
+    lines = [f"{n['href']} | {n['text']} | {n['author']} | ❤ {n['likes']}" for n in notes]
+    out_file = _opt(args, "--out")
+    if out_file:
+        Path(out_file).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        print(f"✅ {len(notes)} note links → {out_file}")
+        quoted = shlex.quote(out_file)
+        print("   Next (serial): "
+              f"cut -d' ' -f1 {quoted} | while IFS= read -r url; "
+              'do sf-reader-all "$url"; done')
+    else:
+        print("\n".join(lines))
+        print(f"\n📦 {len(notes)} note links", file=sys.stderr)
+
+
 def cmd_archive(args: list[str]):
     """Snapshot a curated URL list into self-contained HTML."""
     login_url = _opt(args, "--login")
@@ -222,6 +262,7 @@ Usage:
     sf-reader-all login <platform>   Login to a platform (saves session for browser fallback)
     sf-reader-all archive-links <url>   Harvest same-origin links from a page
     sf-reader-all xhs-profile <url>     Harvest all note links from an XHS profile
+    sf-reader-all xhs-search <keyword>  Search XHS notes by keyword (--limit/--sort/--type)
     sf-reader-all archive <urls-file>   Snapshot a curated URL list into self-contained HTML
     sf-reader-all list               Show inbox contents
     sf-reader-all clear              Clear inbox
@@ -253,6 +294,8 @@ Examples:
         cmd_archive_links(sys.argv[2:])
     elif cmd == "xhs-profile":
         cmd_xhs_profile(sys.argv[2:])
+    elif cmd == "xhs-search":
+        cmd_xhs_search(sys.argv[2:])
     elif cmd == "archive":
         cmd_archive(sys.argv[2:])
     elif cmd == "list":
