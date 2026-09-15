@@ -26,7 +26,7 @@ from sf_reader_all.schema import UnifiedInbox, SourceType
 
 def get_inbox_path() -> str:
     import os
-    return os.getenv("INBOX_FILE", "unified_inbox.json")
+    return os.getenv("INBOX_FILE", os.path.expanduser("~/unified_inbox.json"))
 
 
 def cmd_fetch(sources: list[str], as_json: bool = False):

@@ -147,6 +147,6 @@ def save_many_to_markdown(
 
 def save_content(item: UnifiedContent, json_path: str = None, md_path: str = None):
     """Save content to both JSON and Markdown."""
-    inbox_file = json_path or os.getenv("INBOX_FILE", "unified_inbox.json")
+    inbox_file = json_path or os.getenv("INBOX_FILE", os.path.expanduser("~/unified_inbox.json"))
     save_to_json(item, inbox_file)
     save_to_markdown(item, md_path)
