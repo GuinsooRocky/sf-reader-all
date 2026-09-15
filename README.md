@@ -115,7 +115,7 @@ Claude Code config (`~/.claude/claude_desktop_config.json`):
 | YouTube | ✅ Jina | ✅ yt-dlp subtitles → Groq Whisper fallback |
 | Bilibili (B站) | ✅ API | ✅ via Claude Code skill |
 | X / Twitter | ✅ Jina → Playwright | — |
-| WeChat (微信公众号) | ✅ Jina → Playwright | — |
+| WeChat (微信公众号) | ✅ Playwright (stealth) | — |
 | Xiaohongshu (小红书) | ✅ Jina → Playwright* | — |
 | Telegram | ✅ Telethon | — |
 | RSS | ✅ feedparser | — |
@@ -231,7 +231,7 @@ sf-reader-all/
 │   │   ├── rss.py         # feedparser
 │   │   ├── telegram.py    # Telethon
 │   │   ├── twitter.py     # Jina-based
-│   │   ├── wechat.py      # Jina → Playwright fallback
+│   │   ├── wechat.py      # Playwright stealth (Jina always gets the CAPTCHA stub)
 │   │   └── xhs.py         # Jina → Playwright + session fallback
 │   ├── parsers/
 │   │   └── document.py    # Optional anydoc adapter for local files

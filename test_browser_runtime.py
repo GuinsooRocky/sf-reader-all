@@ -689,16 +689,10 @@ class FetcherRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(page.function_waits[1][1]["arg"], ["abc123"])
         self.assertFalse(hasattr(page, "wait_for_timeout"))
 
-    async def test_wechat_browser_fallback_receives_shared_runtime(self):
+    async def test_wechat_browser_receives_shared_runtime(self):
         from sf_reader_all.fetchers.wechat import fetch_wechat
 
         runtime = object()
-        jina = AsyncMock(
-            return_value={
-                "title": "Weixin Official Accounts Platform",
-                "content": "[去验证]",
-            }
-        )
         browser = AsyncMock(
             return_value={
                 "title": "Article",
@@ -706,10 +700,7 @@ class FetcherRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 "author": "author",
             }
         )
-        with (
-            patch("sf_reader_all.fetchers.jina.fetch_via_jina_async", jina),
-            patch("sf_reader_all.fetchers.browser.fetch_via_browser", browser),
-        ):
+        with patch("sf_reader_all.fetchers.browser.fetch_via_browser", browser):
             result = await fetch_wechat(
                 "https://mp.weixin.qq.com/s/example", runtime=runtime
             )
